@@ -520,10 +520,11 @@ function TileCheckIn({ config, data={}, onChange, editMode, onRemove, allDayData
   const items = data.items || ["","","","",""];
   const isDone = data.planks||data.food||data.priorities||data.feeling?.trim();
 
-  // Find frog from priorities tile
+  // Frog = priority #1 (index 0) only
   const priData = Object.values(allDayData||{}).find(t=>t?._type==="priorities");
-  const frog = (priData?.priorities||[]).find(p=>p.text && !p.done);
-  const frogDone = (priData?.priorities||[]).length > 0 && !(priData?.priorities||[]).find(p=>p.text && !p.done);
+  const frog = priData?.priorities?.[0]?.text && !priData?.priorities?.[0]?.done
+    ? priData.priorities[0] : null;
+  const frogDone = !!(priData?.priorities?.[0]?.text && priData?.priorities?.[0]?.done);
 
   return React.createElement("div", {
     style:{border:`1px solid #2a2a2a`,borderLeft:`3px solid ${c}`,borderRadius:"6px",overflow:"hidden",position:"relative"}
