@@ -165,6 +165,7 @@ function buildDefaultLayout() {
       {
         id: "col-center", width: 44,
         tiles: [
+          { id: "quote",    type: "quote",     config: { title: "Today's Inspiration" } },
           { id: "gratint",  type: "twoprompt", config: { titleA: "Gratitude", titleB: "Intention", placeholderA: "What are you grateful for?", placeholderB: "What do you intend to accomplish?", accent: "#c8a96e" } },
           { id: "checkin1", type: "checkin",   config: { title: "8:30",  color: "#8B4513" } },
           { id: "checkin2", type: "checkin",   config: { title: "11:00", color: "#B8860B" } },
@@ -212,6 +213,7 @@ const TILE_TYPES = {
   notes:      { label: "Notes",          icon: "✎" },
   foodlog:    { label: "Food Log",       icon: "⬡" },
   dangles:    { label: "Dangles",         icon: "↕" },
+  quote:      { label: "Daily Quote",      icon: "✦" },
 };
 
 function defaultConfig(type) {
@@ -230,6 +232,7 @@ function defaultConfig(type) {
     notes:      { title: "Notes" },
     foodlog:    { title: "Food Log", meals: ["Breakfast","Lunch","Dinner","Snack"] },
     dangles:    { title: "Dangles" },
+    quote:      { title: "Today's Inspiration" },
     counter:    { title: "Counter", target: 10 },
   };
   return map[type] || { title: type };
@@ -927,6 +930,80 @@ function TileFoodLog({ config, data={}, onChange, editMode, onRemove, onConfig }
   );
 }
 
+function TileQuote({ config, data={}, onChange, editMode, onRemove, onConfig }) {
+  const [quote, setQuote] = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+
+  // One quote per day — keyed by date
+  React.useEffect(() => {
+    const today = todayKey();
+    if (data.quote && data.date === today) {
+      setQuote({ q: data.quote, a: data.author });
+      return;
+    }
+    // Fetch a fresh quote for today
+    setLoading(true);
+    fetch("https://api.quotable.io/random?maxLength=120&tags=inspirational|wisdom|success|stoicism")
+      .then(r => r.json())
+      .then(d => {
+        const q = { q: d.content, a: d.author };
+        setQuote(q);
+        onChange({ ...data, quote: d.content, author: d.author, date: today });
+      })
+      .catch(() => {
+        // Fallback quotes if API fails
+        const fallbacks = [
+          { q: "The secret of getting ahead is getting started.", a: "Mark Twain" },
+          { q: "It does not matter how slowly you go as long as you do not stop.", a: "Confucius" },
+          { q: "Everything you have ever wanted is on the other side of fear.", a: "George Addair" },
+          { q: "Success is not final, failure is not fatal: it is the courage to continue that counts.", a: "Winston Churchill" },
+          { q: "Hardships often prepare ordinary people for an extraordinary destiny.", a: "C.S. Lewis" },
+        ];
+        const f = fallbacks[new Date().getDate() % fallbacks.length];
+        setQuote(f);
+        onChange({ ...data, quote: f.q, author: f.a, date: today });
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const refresh = () => {
+    setLoading(true);
+    fetch("https://api.quotable.io/random?maxLength=120&tags=inspirational|wisdom|success|stoicism")
+      .then(r => r.json())
+      .then(d => {
+        const q = { q: d.content, a: d.author };
+        setQuote(q);
+        onChange({ ...data, quote: d.content, author: d.author, date: todayKey() });
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+
+  return React.createElement(CardShell, {
+    title: config.title || "Today's Inspiration",
+    accent: "#7a6a5a", editMode, onRemove, onConfig
+  },
+    loading
+      ? React.createElement("div", { style:{color:"#444",fontSize:"11px",padding:"8px 0",letterSpacing:"0.5px"} }, "Fetching today's quote...")
+      : quote
+        ? React.createElement("div", null,
+            React.createElement("div", {
+              style:{fontSize:"13px",color:"#c8b88e",lineHeight:1.7,fontStyle:"italic",
+                fontFamily:"'Instrument Serif',serif",marginBottom:"10px"}
+            }, `"${quote.q}"`),
+            React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"space-between"} },
+              React.createElement("div", { style:{fontSize:"10px",color:"#666",letterSpacing:"0.5px"} }, `— ${quote.a}`),
+              React.createElement("button", {
+                onClick: refresh,
+                style:{background:"transparent",border:"none",color:"#444",cursor:"pointer",
+                  fontSize:"11px",padding:"2px 6px",borderRadius:"3px"}
+              }, "↻")
+            )
+          )
+        : null
+  );
+}
+
 function TileNotes({ config, data={}, onChange, editMode, onRemove, onConfig }) {
   return React.createElement(CardShell, { title:config.title||"Notes", accent:"#6a6a8a", editMode, onRemove, onConfig },
     React.createElement(AutoTA, { value:data.text||"", placeholder:"Free notes...",
@@ -973,6 +1050,7 @@ function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDay
     case "notes":      return React.createElement(TileNotes, props);
     case "foodlog":    return React.createElement(TileFoodLog, props);
     case "dangles":    return React.createElement(TileDangles, props);
+    case "quote":      return React.createElement(TileQuote, props);
     case "counter":    return React.createElement(TileCounter, props);
     default: return React.createElement("div", { style:{color:"#555",padding:"12px",fontSize:"11px"} }, `Unknown: ${tile.type}`);
   }
