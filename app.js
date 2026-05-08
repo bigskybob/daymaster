@@ -318,12 +318,12 @@ function CB({ checked, onChange, label, strike=false }) {
   },
     React.createElement("input", { type:"checkbox", checked, onChange:e=>onChange(e.target.checked),
       style:{marginTop:"3px",flexShrink:0,accentColor:"#c8a96e",width:"13px",height:"13px"} }),
-    React.createElement("span", { style: strike&&checked ? {textDecoration:"line-through",color:"#555"} : {} }, label)
+    React.createElement("span", { style: strike&&checked ? {textDecoration:"line-through",color:"var(--text-muted)"} : {} }, label)
   );
 }
 
-function iconBtnStyle(bg="#333") {
-  return { background:bg, border:"none", color:"#aaa", width:"22px", height:"22px",
+function iconBtnStyle(bg="var(--bg-hover)") {
+  return { background:bg, border:"none", color:"var(--text-dim)", width:"22px", height:"22px",
     borderRadius:"3px", cursor:"pointer", fontSize:"11px", lineHeight:"22px", textAlign:"center", padding:0 };
 }
 
@@ -334,7 +334,7 @@ function CardShell({ title, accent="#c8a96e", bg, border, children, editMode, on
       position:"relative", ...style }
   },
     editMode && React.createElement("div", { style:{position:"absolute",top:"7px",right:"7px",display:"flex",gap:"4px",zIndex:10} },
-      onConfig && React.createElement("button", { onClick:onConfig, style:iconBtnStyle("#2a2a2a"), title:"Configure" }, "⚙"),
+      onConfig && React.createElement("button", { onClick:onConfig, style:iconBtnStyle("var(--bg-hover)"), title:"Configure" }, "⚙"),
       React.createElement("button", { onClick:onRemove, style:iconBtnStyle("#5a1a1a"), title:"Remove" }, "✕")
     ),
     React.createElement("div", {
@@ -366,10 +366,10 @@ function TileChecklist({ config, data={}, onChange, editMode, onRemove, onConfig
   return React.createElement(CardShell, { title:config.title, accent:config.accent, bg:config.bg, border:config.border, editMode, onRemove, onConfig },
     autoCount > 0 && React.createElement("div", {
       style:{display:"flex",alignItems:"center",gap:"5px",marginBottom:"8px",
-        padding:"4px 7px",background:"#1a1500",border:"1px solid #2a2500",borderRadius:"3px"}
+        padding:"4px 7px",background:"#1a150022",border:"1px solid #2a250044",borderRadius:"3px"}
     },
       React.createElement("span", { style:{fontSize:"10px"} }, "⚡"),
-      React.createElement("span", { style:{fontSize:"9px",color:"#8a7040",letterSpacing:"0.5px"} },
+      React.createElement("span", { style:{fontSize:"9px",color:"var(--text-dim)",letterSpacing:"0.5px"} },
         `${autoCount} auto-completed · ${doneCount}/${total} done`)
     ),
     React.createElement("div", { style:{display:"flex",flexDirection:"column",gap:"2px"} },
@@ -379,7 +379,7 @@ function TileChecklist({ config, data={}, onChange, editMode, onRemove, onConfig
         const isChecked = isAuto || isManual;
         return React.createElement("label", { key:i,
           style:{display:"flex",alignItems:"flex-start",gap:"7px",cursor:"pointer",
-            padding:"3px 0",color:isChecked?"#555":"#bbb",fontSize:"12px",lineHeight:1.5,
+            padding:"3px 0",color:isChecked?"var(--text-muted)":"var(--text-dim)",fontSize:"12px",lineHeight:1.5,
             opacity: isAuto && !isManual ? 0.8 : 1}
         },
           React.createElement("div", { style:{position:"relative",flexShrink:0,marginTop:"3px"} },
@@ -396,7 +396,7 @@ function TileChecklist({ config, data={}, onChange, editMode, onRemove, onConfig
             }, "⚡")
           ),
           React.createElement("span", {
-            style: isChecked ? {textDecoration:"line-through",color:"#555"} : {}
+            style: isChecked ? {textDecoration:"line-through",color:"var(--text-muted)"} : {}
           }, item)
         );
       })
@@ -418,17 +418,17 @@ function TilePriorities({ config, data={}, onChange, editMode, onRemove, onConfi
   return React.createElement(CardShell, { title:config.title||"My Top Priorities", accent:"#c8a96e", editMode, onRemove, onConfig },
     priorities.map((p,i) =>
       React.createElement("div", { key:i, style:{display:"flex",alignItems:"flex-start",gap:"6px",marginBottom:"6px"} },
-        React.createElement("span", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"16px",color:"#c8a96e",width:"18px",flexShrink:0,lineHeight:1.2} }, i+1),
+        React.createElement("span", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"16px",color:"var(--accent)",width:"18px",flexShrink:0,lineHeight:1.2} }, i+1),
         React.createElement("input", { type:"checkbox", checked:!!p.done,
           onChange: e => { const n=[...priorities]; n[i]={...p,done:e.target.checked}; onChange({...data,priorities:n}); },
           style:{marginTop:"4px",flexShrink:0,accentColor:"#c8a96e",width:"13px",height:"13px"} }),
         React.createElement(AutoTA, { value:p.text, placeholder:i===0?"☞ Eat this frog first...":"Priority...",
           onChange: v => { const n=[...priorities]; n[i]={...p,text:v}; onChange({...data,priorities:n}); },
-          style: p.done?{textDecoration:"line-through",color:"#555"}:{} })
+          style: p.done?{textDecoration:"line-through",color:"var(--text-muted)"}:{} })
       )
     ),
-    React.createElement("div", { style:{height:"1px",background:"#1e1e1e",margin:"8px 0"} }),
-    React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"#444",marginBottom:"6px"} }, "Added Through Day"),
+    React.createElement("div", { style:{height:"1px",background:"var(--border-dim)",margin:"8px 0"} }),
+    React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-faint)",marginBottom:"6px"} }, "Added Through Day"),
     React.createElement(BulletList, { items:added, onChange:v=>onChange({...data,added:v}), placeholder:"Added task..." })
   );
 }
@@ -445,26 +445,26 @@ function TileProject({ config, data={}, onChange, editMode, onRemove, onConfig }
     style:{display:"flex",alignItems:"center",gap:"8px",cursor:"pointer",userSelect:"none"},
     onClick: e => { if(editMode) return; onChange({...data, _open:!isOpen}); }
   },
-    React.createElement("span", { style:{color:isOpen?"#c8a96e":"#555",fontSize:"12px",transition:"transform 0.2s",display:"inline-block",transform:isOpen?"rotate(90deg)":"rotate(0deg)"} }, "▶"),
+    React.createElement("span", { style:{color:isOpen?"var(--accent)":"var(--text-muted)",fontSize:"12px",transition:"transform 0.2s",display:"inline-block",transform:isOpen?"rotate(90deg)":"rotate(0deg)"} }, "▶"),
     editMode
       ? React.createElement("input", {
           value:localTitle,
           onClick:e=>e.stopPropagation(),
           onChange:e=>{ setLocalTitle(e.target.value); onChange({...data,title:e.target.value}); },
-          style:{background:"transparent",border:"none",borderBottom:"1px solid #1e1e1e",
-            color:"#888",fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",
+          style:{background:"transparent",border:"none",borderBottom:"1px solid var(--border-dim)",
+            color:"var(--text-dim)",fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",
             textTransform:"uppercase",flex:1,padding:"2px 0"}
         })
       : React.createElement("span", {
           style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",
-            textTransform:"uppercase",color:isOpen?"#c8a96e":"#555",flex:1}
+            textTransform:"uppercase",color:isOpen?"var(--accent)":"var(--text-muted)",flex:1}
         }, localTitle || "Untitled Project"),
     !isOpen && hasContent && React.createElement("span", {
       style:{fontSize:"9px",color:"#4a7a4a",background:"#1a2a1a",border:"1px solid #2a4a2a",
         borderRadius:"3px",padding:"1px 6px"}
     }, `${doneCount} items`),
     editMode && React.createElement("div", { style:{display:"flex",gap:"3px",marginLeft:"auto"}, onClick:e=>e.stopPropagation() },
-      React.createElement("button", { onClick:onConfig, style:{background:"#2a2a2a",border:"none",color:"#aaa",width:"20px",height:"20px",borderRadius:"3px",cursor:"pointer",fontSize:"10px"} }, "⚙"),
+      React.createElement("button", { onClick:onConfig, style:{background:"var(--bg-hover)",border:"none",color:"var(--text-dim)",width:"20px",height:"20px",borderRadius:"3px",cursor:"pointer",fontSize:"10px"} }, "⚙"),
       React.createElement("button", { onClick:onRemove, style:{background:"#5a1a1a",border:"none",color:"#aaa",width:"20px",height:"20px",borderRadius:"3px",cursor:"pointer",fontSize:"10px"} }, "✕")
     )
   );
@@ -480,8 +480,8 @@ function TileProject({ config, data={}, onChange, editMode, onRemove, onConfig }
         value: localTitle,
         onChange: e => { setLocalTitle(e.target.value); onChange({...data, title:e.target.value}); },
         placeholder: "Project name...",
-        style:{background:"transparent",border:"none",borderBottom:"1px solid #2a2a2a",
-          color:"#c8a96e",fontFamily:"'Archivo Black',sans-serif",fontSize:"11px",letterSpacing:"1.5px",
+        style:{background:"transparent",border:"none",borderBottom:"1px solid var(--border)",
+          color:"var(--accent)",fontFamily:"'Archivo Black',sans-serif",fontSize:"11px",letterSpacing:"1.5px",
           textTransform:"uppercase",width:"100%",padding:"3px 0",marginBottom:"10px"}
       }),
       React.createElement(BulletList, { items, onChange:v=>onChange({...data,items:v}), placeholder:"Task..." })
@@ -492,8 +492,8 @@ function TileProject({ config, data={}, onChange, editMode, onRemove, onConfig }
 function AddProjectButton({ colId, onAdd }) {
   return React.createElement("button", {
     onClick: () => onAdd(colId, "project"),
-    style:{width:"100%",background:"transparent",border:"1px dashed #2a2a2a",borderRadius:"6px",
-      padding:"8px",color:"#444",fontFamily:"'DM Mono',monospace",fontSize:"10px",
+    style:{width:"100%",background:"transparent",border:"1px dashed var(--border)",borderRadius:"6px",
+      padding:"8px",color:"var(--text-faint)",fontFamily:"'DM Mono',monospace",fontSize:"10px",
       cursor:"pointer",letterSpacing:"0.5px",display:"flex",alignItems:"center",justifyContent:"center",gap:"6px",
       transition:"all 0.15s"}
   },
@@ -523,7 +523,7 @@ function TileTwoPrompt({ config, data={}, onChange, editMode, onRemove, onConfig
 }
 
 function TileCheckIn({ config, data={}, onChange, editMode, onRemove, allDayData }) {
-  const c = config.color||"#555";
+  const c = config.color||"var(--border)";
   const items = data.items || ["","","","",""];
   const isDone = data.planks||data.food||data.priorities||data.feeling?.trim();
 
@@ -534,44 +534,44 @@ function TileCheckIn({ config, data={}, onChange, editMode, onRemove, allDayData
   const frogDone = !!(priData?.priorities?.[0]?.text && priData?.priorities?.[0]?.done);
 
   return React.createElement("div", {
-    style:{border:`1px solid #2a2a2a`,borderLeft:`3px solid ${c}`,borderRadius:"6px",overflow:"hidden",position:"relative"}
+    style:{border:`1px solid var(--border)`,borderLeft:`3px solid ${c}`,borderRadius:"6px",overflow:"hidden",position:"relative"}
   },
     editMode && React.createElement("div", { style:{position:"absolute",top:"7px",right:"7px",zIndex:10} },
       React.createElement("button", { onClick:onRemove, style:iconBtnStyle("#5a1a1a") }, "✕")
     ),
     React.createElement("div", {
       style:{padding:"8px 10px",background:c,fontFamily:"'Archivo Black',sans-serif",
-        fontSize:"9px",letterSpacing:"1.5px",color:"#0f0f0f",textTransform:"uppercase",
+        fontSize:"9px",letterSpacing:"1.5px",color:"var(--bg)",textTransform:"uppercase",
         display:"flex",alignItems:"center",justifyContent:"space-between"}
     },
       React.createElement("span", null, `${config.title} Check-In`),
       isDone && React.createElement("span", { style:{fontSize:"13px"} }, "✓")
     ),
     frog && React.createElement("div", {
-      style:{padding:"7px 10px",background:"#1a1200",borderBottom:"1px solid #2a2000",
+      style:{padding:"7px 10px",background:"var(--accent-dim)",borderBottom:"1px solid var(--border-dim)",
         display:"flex",alignItems:"center",gap:"7px"}
     },
       React.createElement("span", { style:{fontSize:"11px",flexShrink:0} }, "☞"),
       React.createElement("span", { style:{fontSize:"11px",color:"#c8a96e",fontStyle:"italic",lineHeight:1.4} }, frog.text),
     ),
     frogDone && React.createElement("div", {
-      style:{padding:"6px 10px",background:"#0a1a0a",borderBottom:"1px solid #1a3a1a",
+      style:{padding:"6px 10px",background:"#0a1a0a55",borderBottom:"1px solid #1a3a1a88",
         display:"flex",alignItems:"center",gap:"6px"}
     },
       React.createElement("span", { style:{fontSize:"10px",color:"#4a7a4a"} }, "✓ Frog done")
     ),
-    React.createElement("div", { style:{padding:"10px",background:"#161616",display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"} },
+    React.createElement("div", { style:{padding:"10px",background:"var(--bg-card)",display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"} },
       React.createElement("div", null,
         React.createElement(CB, { checked:!!data.planks, onChange:v=>onChange({...data,planks:v}), label:"Planks or Pushups" }),
         React.createElement(CB, { checked:!!data.food, onChange:v=>onChange({...data,food:v}), label:"Food Logged" }),
         React.createElement(CB, { checked:!!data.priorities, onChange:v=>onChange({...data,priorities:v}), label:"Next Priorities" }),
         React.createElement("div", { style:{marginTop:"8px"} },
-          React.createElement("div", { style:{fontSize:"9px",color:"#555",marginBottom:"3px",letterSpacing:"1px",textTransform:"uppercase"} }, "How I'm feeling"),
+          React.createElement("div", { style:{fontSize:"9px",color:"var(--text-muted)",marginBottom:"3px",letterSpacing:"1px",textTransform:"uppercase"} }, "How I'm feeling"),
           React.createElement(AutoTA, { value:data.feeling||"", placeholder:"...", onChange:v=>onChange({...data,feeling:v}) })
         )
       ),
       React.createElement("div", null,
-        React.createElement("div", { style:{fontSize:"9px",color:"#555",marginBottom:"5px",letterSpacing:"1px",textTransform:"uppercase"} }, "Next 2.5 hrs"),
+        React.createElement("div", { style:{fontSize:"9px",color:"var(--text-muted)",marginBottom:"5px",letterSpacing:"1px",textTransform:"uppercase"} }, "Next 2.5 hrs"),
         React.createElement(BulletList, { items, onChange:v=>onChange({...data,items:v}) })
       )
     )
@@ -599,8 +599,8 @@ function TilePushups({ config, data={}, onChange, editMode, onRemove, onConfig }
     React.createElement("div", { style:{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:"3px"} },
       PUSHUP_NUMS.map(n =>
         React.createElement("button", { key:n, onClick:()=>onChange({...data,pushups:{...p,[n]:!p[n]}}),
-          style:{background:p[n]?"#c8a96e22":"#1a1a1a",border:`1px solid ${p[n]?"#c8a96e":"#2a2a2a"}`,
-            color:p[n]?"#c8a96e":"#555",fontFamily:"'DM Mono',monospace",fontSize:"9px",
+          style:{background:p[n]?"var(--accent-dim)":"var(--bg-card)",border:`1px solid ${p[n]?"var(--accent)":"var(--border)"}`,
+            color:p[n]?"var(--accent)":"var(--text-muted)",fontFamily:"'DM Mono',monospace",fontSize:"9px",
             padding:"4px 2px",borderRadius:"3px",cursor:"pointer"} }, n)
       )
     )
@@ -669,12 +669,12 @@ function FullscreenTimer({ seconds, label, onComplete, onCancel }) {
   const color = remaining === 0 ? "#4a7a4a" : isLow ? "#c84a4a" : remaining <= seconds * 0.4 ? "#c8a020" : "#c8a96e";
 
   return React.createElement("div", {
-    style:{position:"fixed",inset:0,background:"#050505",zIndex:9999,
+    style:{position:"fixed",inset:0,background:"var(--bg)",zIndex:9999,
       display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"24px"}
   },
     // Arc progress
     React.createElement("svg", { width:"260", height:"260", viewBox:"0 0 260 260" },
-      React.createElement("circle", { cx:"130",cy:"130",r:"110",fill:"none",stroke:"#1a1a1a",strokeWidth:"12" }),
+      React.createElement("circle", { cx:"130",cy:"130",r:"110",fill:"none",stroke:"var(--border)",strokeWidth:"12" }),
       React.createElement("circle", { cx:"130",cy:"130",r:"110",fill:"none",stroke:color,strokeWidth:"12",
         strokeDasharray:`${2*Math.PI*110}`,
         strokeDashoffset:`${2*Math.PI*110*(1-pct/100)}`,
@@ -683,13 +683,13 @@ function FullscreenTimer({ seconds, label, onComplete, onCancel }) {
       React.createElement("text", { x:"130",y:"118",textAnchor:"middle",
         style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"58px",fill:color,transition:"fill 0.3s"} }, timeStr),
       React.createElement("text", { x:"130",y:"152",textAnchor:"middle",
-        style:{fontFamily:"'DM Mono',monospace",fontSize:"13px",fill:"#555",letterSpacing:"2px",textTransform:"uppercase"} }, label)
+        style:{fontFamily:"'DM Mono',monospace",fontSize:"13px",fill:"var(--text-muted)",letterSpacing:"2px",textTransform:"uppercase"} }, label)
     ),
     // Controls
     React.createElement("div", { style:{display:"flex",gap:"14px"} },
       React.createElement("button", {
         onClick: () => { setRunning(r=>!r); if(!running) {} },
-        style:{background:"#1a1a1a",border:`1px solid ${running?"#555":"#c8a96e"}`,color:running?"#888":"#c8a96e",
+        style:{background:"var(--bg-hover)",border:`1px solid ${running?"var(--border)":"var(--accent)"}`,color:running?"var(--text-dim)":"var(--accent)",
           fontFamily:"'DM Mono',monospace",fontSize:"13px",padding:"10px 28px",borderRadius:"6px",cursor:"pointer",letterSpacing:"1px"}
       }, running ? "⏸ Pause" : "▶ Resume"),
       React.createElement("button", {
@@ -753,17 +753,17 @@ function TilePlanks({ config, data={}, onChange, editMode, onRemove, onConfig })
         `${doneCount} session${doneCount>1?"s":""} done today`
       ),
       // Timer controls
-      React.createElement("div", { style:{height:"1px",background:"#1e1e1e",marginBottom:"10px"} }),
+      React.createElement("div", { style:{height:"1px",background:"var(--border-dim)",marginBottom:"10px"} }),
       React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"6px"} },
         React.createElement("button", { onClick:()=>adjustTimer(-10),
-          style:{background:"#1a1a1a",border:"1px solid #2a2a2a",color:"#666",width:"28px",height:"28px",
+          style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",width:"28px",height:"28px",
             borderRadius:"4px",cursor:"pointer",fontSize:"14px",lineHeight:"28px",textAlign:"center"} }, "−"),
         React.createElement("div", { style:{flex:1,textAlign:"center"} },
           React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"22px",color:"#4a7a4a",letterSpacing:"1px"} }, timeStr),
-          React.createElement("div", { style:{fontSize:"9px",color:"#444",letterSpacing:"1px",textTransform:"uppercase",marginTop:"1px"} }, "duration")
+          React.createElement("div", { style:{fontSize:"9px",color:"var(--text-faint)",letterSpacing:"1px",textTransform:"uppercase",marginTop:"1px"} }, "duration")
         ),
         React.createElement("button", { onClick:()=>adjustTimer(10),
-          style:{background:"#1a1a1a",border:"1px solid #2a2a2a",color:"#666",width:"28px",height:"28px",
+          style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",width:"28px",height:"28px",
             borderRadius:"4px",cursor:"pointer",fontSize:"14px",lineHeight:"28px",textAlign:"center"} }, "+"),
         React.createElement("button", { onClick:()=>setRunning(true),
           style:{background:"#1a3a1a",border:"1px solid #3a6a3a",color:"#7ac97a",padding:"6px 14px",
@@ -831,7 +831,7 @@ function TileDangles({ config, data={}, onChange, editMode, onRemove, onConfig }
         )
       ),
       // Start button
-      React.createElement("div", { style:{height:"1px",background:"#1e1e1e",marginBottom:"10px"} }),
+      React.createElement("div", { style:{height:"1px",background:"var(--border-dim)",marginBottom:"10px"} }),
       React.createElement("button", {
         onClick: () => { if (!allDone) setRunning(true); },
         disabled: allDone,
@@ -871,16 +871,16 @@ function TileNumbers({ config, data={}, editMode, onRemove, onConfig, allDayData
   ];
 
   return React.createElement(CardShell, { title:config.title||"Daily Numbers", accent:"#c8a96e",
-    style:{background:"#0f0f00",borderColor:"#2a2a00"}, editMode, onRemove, onConfig },
+    style:{background:"var(--bg-card)",borderColor:"var(--border)"}, editMode, onRemove, onConfig },
     stats.map(({label,val,target,color}) =>
       React.createElement("div", { key:label, style:{marginBottom:"10px"} },
         React.createElement("div", { style:{display:"flex",justifyContent:"space-between",marginBottom:"3px"} },
-          React.createElement("span", { style:{color:"#666",fontSize:"10px"} }, label),
+          React.createElement("span", { style:{color:"var(--text-dim)",fontSize:"10px"} }, label),
           React.createElement("span", { style:{color,fontFamily:"'Archivo Black',sans-serif",fontSize:"12px"} },
-            val, React.createElement("span", { style:{color:"#444"} }, `/${target}`)
+            val, React.createElement("span", { style:{color:"var(--text-faint)"} }, `/${target}`)
           )
         ),
-        React.createElement("div", { style:{background:"#1a1a00",borderRadius:"2px",height:"3px",overflow:"hidden"} },
+        React.createElement("div", { style:{background:"var(--border-dim)",borderRadius:"2px",height:"3px",overflow:"hidden"} },
           React.createElement("div", { style:{background:color,height:"100%",width:`${Math.min(100,(val/target)*100)}%`,transition:"width 0.4s"} })
         )
       )
@@ -923,7 +923,7 @@ function TileFoodLog({ config, data={}, onChange, editMode, onRemove, onConfig }
             value: logs[i]?.text||"",
             placeholder: `What did you eat?`,
             onChange: v => { const n=[...logs]; n[i]={...n[i],text:v}; onChange({...data,logs:n}); },
-            style: logs[i]?.done ? {color:"#555",textDecoration:"line-through"} : {}
+            style: logs[i]?.done ? {color:"var(--text-muted)",textDecoration:"line-through"} : {}
           })
         )
       )
@@ -985,18 +985,18 @@ function TileQuote({ config, data={}, onChange, editMode, onRemove, onConfig }) 
     accent: "#7a6a5a", editMode, onRemove, onConfig
   },
     loading
-      ? React.createElement("div", { style:{color:"#444",fontSize:"11px",padding:"8px 0",letterSpacing:"0.5px"} }, "Fetching today's quote...")
+      ? React.createElement("div", { style:{color:"var(--text-faint)",fontSize:"11px",padding:"8px 0",letterSpacing:"0.5px"} }, "Fetching today's quote...")
       : quote
         ? React.createElement("div", null,
             React.createElement("div", {
-              style:{fontSize:"13px",color:"#c8b88e",lineHeight:1.7,fontStyle:"italic",
+              style:{fontSize:"13px",color:"var(--accent)",lineHeight:1.7,fontStyle:"italic",
                 fontFamily:"'Instrument Serif',serif",marginBottom:"10px"}
             }, `"${quote.q}"`),
             React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"space-between"} },
-              React.createElement("div", { style:{fontSize:"10px",color:"#666",letterSpacing:"0.5px"} }, `— ${quote.a}`),
+              React.createElement("div", { style:{fontSize:"10px",color:"var(--text-dim)",letterSpacing:"0.5px"} }, `— ${quote.a}`),
               React.createElement("button", {
                 onClick: refresh,
-                style:{background:"transparent",border:"none",color:"#444",cursor:"pointer",
+                style:{background:"transparent",border:"none",color:"var(--text-faint)",cursor:"pointer",
                   fontSize:"11px",padding:"2px 6px",borderRadius:"3px"}
               }, "↻")
             )
@@ -1017,16 +1017,16 @@ function TileCounter({ config, data={}, onChange, editMode, onRemove, onConfig }
   return React.createElement(CardShell, { title:config.title||"Counter", accent:"#7a6a9a", editMode, onRemove, onConfig },
     React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"center",gap:"16px",padding:"8px 0"} },
       React.createElement("button", { onClick:()=>onChange({...data,count:Math.max(0,val-1)}),
-        style:{...iconBtnStyle("#2a2a2a"),width:"32px",height:"32px",fontSize:"20px",color:"#888",lineHeight:"32px"} }, "−"),
-      React.createElement("span", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"40px",color:"#c8a96e",minWidth:"60px",textAlign:"center"} }, val),
+        style:{...iconBtnStyle("var(--bg-hover)"),width:"32px",height:"32px",fontSize:"20px",color:"var(--text-dim)",lineHeight:"32px"} }, "−"),
+      React.createElement("span", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"40px",color:"var(--accent)",minWidth:"60px",textAlign:"center"} }, val),
       React.createElement("button", { onClick:()=>onChange({...data,count:val+1}),
-        style:{...iconBtnStyle("#2a2a2a"),width:"32px",height:"32px",fontSize:"20px",color:"#888",lineHeight:"32px"} }, "+")
+        style:{...iconBtnStyle("var(--bg-hover)"),width:"32px",height:"32px",fontSize:"20px",color:"var(--text-dim)",lineHeight:"32px"} }, "+")
     ),
     config.target && React.createElement("div", null,
-      React.createElement("div", { style:{background:"#1a1a1a",borderRadius:"2px",height:"3px",overflow:"hidden"} },
+      React.createElement("div", { style:{background:"var(--border-dim)",borderRadius:"2px",height:"3px",overflow:"hidden"} },
         React.createElement("div", { style:{background:"#7a6a9a",height:"100%",width:`${Math.min(100,(val/(config.target))*100)}%`,transition:"width 0.3s"} })
       ),
-      React.createElement("div", { style:{color:"#444",fontSize:"9px",marginTop:"3px",textAlign:"right"} }, `${val}/${config.target}`)
+      React.createElement("div", { style:{color:"var(--text-faint)",fontSize:"9px",marginTop:"3px",textAlign:"right"} }, `${val}/${config.target}`)
     )
   );
 }
@@ -1053,7 +1053,7 @@ function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDay
     case "dangles":    return React.createElement(TileDangles, props);
     case "quote":      return React.createElement(TileQuote, props);
     case "counter":    return React.createElement(TileCounter, props);
-    default: return React.createElement("div", { style:{color:"#555",padding:"12px",fontSize:"11px"} }, `Unknown: ${tile.type}`);
+    default: return React.createElement("div", { style:{color:"var(--text-muted)",padding:"12px",fontSize:"11px"} }, `Unknown: ${tile.type}`);
   }
 }
 
@@ -1131,7 +1131,7 @@ function HistoryView({ store }) {
   const layout = store.layouts[store.activeLayout||"default"];
 
   if (!days.length) return React.createElement("div", {
-    style:{textAlign:"center",padding:"80px",color:"#444",fontFamily:"'DM Mono',monospace",fontSize:"12px"}
+    style:{textAlign:"center",padding:"80px",color:"var(--text-faint)",fontFamily:"'DM Mono',monospace",fontSize:"12px"}
   }, "No history yet — your completed days will appear here.");
 
   const selData = sel ? store.days[sel] : null;
@@ -1139,9 +1139,9 @@ function HistoryView({ store }) {
 
   return React.createElement("div", { style:{maxWidth:"960px",margin:"0 auto",padding:"24px",display:"grid",gridTemplateColumns:"200px 1fr",gap:"16px"} },
     React.createElement("div", null,
-      React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"#444",marginBottom:"10px"} }, "Past Days"),
+      React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-faint)",marginBottom:"10px"} }, "Past Days"),
       days.map(([key]) => React.createElement("button", { key, onClick:()=>setSel(key),
-        style:{display:"block",width:"100%",textAlign:"left",background:sel===key?"#c8a96e22":"transparent",
+        style:{display:"block",width:"100%",textAlign:"left",background:sel===key?"var(--accent-dim)":"transparent",
           border:`1px solid ${sel===key?"var(--accent)":"var(--border-dim)"}`,borderRadius:"4px",padding:"8px 10px",
           marginBottom:"4px",color:sel===key?"var(--accent)":"var(--text-dim)",fontFamily:"'DM Mono',monospace",
           fontSize:"10px",cursor:"pointer"} },
@@ -1150,7 +1150,7 @@ function HistoryView({ store }) {
     ),
     React.createElement("div", null,
       selData ? React.createElement("div", null,
-        React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"16px",color:"#c8a96e",marginBottom:"16px"} }, fmtDate(sel)),
+        React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"16px",color:"var(--accent)",marginBottom:"16px"} }, fmtDate(sel)),
         allTiles.map(tile => {
           const td = selData[tile.id];
           if (!td) return null;
@@ -1163,19 +1163,19 @@ function HistoryView({ store }) {
                   `${p.done?"✓":"○"} ${p.text}`)
               )
             ),
-            tile.type === "textprompt" && td.text && React.createElement("div", { style:{color:"#888",fontSize:"12px",lineHeight:1.6} }, td.text),
+            tile.type === "textprompt" && td.text && React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"12px",lineHeight:1.6} }, td.text),
             tile.type === "twoprompt" && React.createElement("div", null,
-              td.textA && React.createElement("div", { style:{color:"#888",fontSize:"12px",marginBottom:"6px"} }, React.createElement("span", { style:{color:"#555"} }, `${tile.config.titleA}: `), td.textA),
-              td.textB && React.createElement("div", { style:{color:"#888",fontSize:"12px"} }, React.createElement("span", { style:{color:"#555"} }, `${tile.config.titleB}: `), td.textB)
+              td.textA && React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"12px",marginBottom:"6px"} }, React.createElement("span", { style:{color:"var(--text-muted)"} }, `${tile.config.titleA}: `), td.textA),
+              td.textB && React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"12px"} }, React.createElement("span", { style:{color:"var(--text-muted)"} }, `${tile.config.titleB}: `), td.textB)
             ),
             (tile.type === "freelist" || tile.type === "project") && React.createElement("div", null,
-              (td.items||[]).filter(x=>x).map((item,i) => React.createElement("div", { key:i, style:{color:"#888",fontSize:"12px",marginBottom:"2px"} }, `○ ${item}`))
+              (td.items||[]).filter(x=>x).map((item,i) => React.createElement("div", { key:i, style:{color:"var(--text-dim)",fontSize:"12px",marginBottom:"2px"} }, `○ ${item}`))
             ),
             tile.type === "checkin" && React.createElement("div", null,
-              React.createElement("div", { style:{color:"#888",fontSize:"12px",marginBottom:"4px"} },
+              React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"12px",marginBottom:"4px"} },
                 [td.planks&&"Planks ✓", td.food&&"Food ✓", td.priorities&&"Priorities ✓"].filter(Boolean).join("  ·  ")
               ),
-              td.feeling && React.createElement("div", { style:{color:"#666",fontSize:"11px",fontStyle:"italic"} }, `"${td.feeling}"`)
+              td.feeling && React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"11px",fontStyle:"italic"} }, `"${td.feeling}"`)
             ),
             ["checklist"].includes(tile.type) && React.createElement("div", null,
               tile.config.items?.map((item,i) =>
@@ -1185,7 +1185,7 @@ function HistoryView({ store }) {
             )
           );
         })
-      ) : React.createElement("div", { style:{color:"#444",fontFamily:"'DM Mono',monospace",fontSize:"12px",padding:"60px",textAlign:"center"} }, "← Select a day")
+      ) : React.createElement("div", { style:{color:"var(--text-faint)",fontFamily:"'DM Mono',monospace",fontSize:"12px",padding:"60px",textAlign:"center"} }, "← Select a day")
     )
   );
 }
@@ -1517,7 +1517,7 @@ function App() {
       React.createElement("div", { className:"dm-grid", style:{display:"grid",gridTemplateColumns:layout.columns.map(c=>`${c.width}fr`).join(" "),gap:"14px"} },
         layout.columns.map(col =>
           React.createElement("div", { key:col.id, className:`dm-col-${col.id.replace("col-","")}`, style:{display:"flex",flexDirection:"column",gap:"12px"} },
-            editMode && React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"8px",letterSpacing:"3px",textTransform:"uppercase",color:"#333",textAlign:"center",padding:"4px",border:"1px dashed #222",borderRadius:"4px"} }, col.id),
+            editMode && React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"8px",letterSpacing:"3px",textTransform:"uppercase",color:"var(--text-xfaint)",textAlign:"center",padding:"4px",border:"1px dashed var(--border-dim)",borderRadius:"4px"} }, col.id),
             col.tiles.map((tile, tileIdx) =>
               React.createElement("div", { key:tile.id,
                 draggable:editMode,
