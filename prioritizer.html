@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Daymaster — Feature Prioritizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=DM+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f0f0f;
+    --bg-card: #161616;
+    --bg-hover: #1e1e1e;
+    --border: #252525;
+    --border-dim: #1e1e1e;
+    --text: #e8e4dc;
+    --text-dim: #888;
+    --text-muted: #555;
+    --text-faint: #333;
+    --accent: #c8a96e;
+    --accent-dim: #c8a96e18;
+    --green: #4a7a4a;
+    --green-dim: #1a2a1a;
+    --red: #7a3030;
+    --red-dim: #2a1010;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── HEADER ── */
+  header {
+    background: #0c0c0c;
+    border-bottom: 1px solid var(--border-dim);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    font-family: 'Archivo Black', sans-serif;
+    font-size: 18px;
+    letter-spacing: -0.5px;
+  }
+  .logo span { color: var(--accent); }
+
+  .header-sub {
+    font-family: 'Instrument Serif', serif;
+    font-style: italic;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .header-meta {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+  }
+
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--text-faint);
+    display: inline-block;
+    margin-right: 5px;
+    transition: background 0.3s;
+  }
+  .status-dot.loading { background: var(--accent); animation: pulse 1s infinite; }
+  .status-dot.ready   { background: var(--green); }
+  .status-dot.error   { background: #a04040; }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* ── MAIN ── */
+  main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 20px;
+    gap: 24px;
+  }
+
+  /* ── VIEWS ── */
+  .view { width: 100%; max-width: 900px; display: none; }
+  .view.active { display: flex; flex-direction: column; gap: 20px; }
+
+  /* ── LOADING ── */
+  #view-loading {
+    align-items: center;
+    justify-content: center;
+    min-height: 50vh;
+    gap: 12px;
+  }
+  #view-loading .load-text {
+    font-family: 'Instrument Serif', serif;
+    font-style: italic;
+    font-size: 16px;
+    color: var(--text-dim);
+    animation: pulse 1.5s infinite;
+  }
+
+  /* ── MATCHUP ── */
+  .round-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .round-label {
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .prog-wrap {
+    background: var(--border-dim);
+    height: 2px;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .prog-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.4s ease;
+    width: 0%;
+  }
+
+  .arena {
+    display: grid;
+    grid-template-columns: 1fr 60px 1fr;
+    gap: 0;
+    align-items: stretch;
+    min-height: 220px;
+  }
+
+  .vs-col {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Archivo Black', sans-serif;
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: var(--text-faint);
+  }
+
+  .feature-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 20px;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.1s, background 0.15s;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .feature-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 0.15s;
+    background: var(--accent-dim);
+  }
+
+  .feature-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .feature-card:hover::before { opacity: 1; }
+  .feature-card:active { transform: scale(0.98); }
+
+  .feature-card.winner {
+    border-color: var(--green);
+    background: var(--green-dim);
+    pointer-events: none;
+    animation: flash-green 0.4s ease;
+  }
+  .feature-card.loser {
+    opacity: 0.25;
+    pointer-events: none;
+  }
+
+  @keyframes flash-green {
+    0% { border-color: #7aff7a; }
+    100% { border-color: var(--green); }
+  }
+
+  .card-id {
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+
+  .card-title {
+    font-family: 'Instrument Serif', serif;
+    font-size: 18px;
+    line-height: 1.4;
+    color: var(--text);
+    flex: 1;
+  }
+
+  .card-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .badge {
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-family: 'DM Mono', monospace;
+  }
+
+  .badge-group { background: var(--bg-hover); color: var(--text-muted); border: 1px solid var(--border); }
+  .badge-S { background: #1a2a1a; color: #7ac97a; border: 1px solid #2a4a2a; }
+  .badge-M { background: #2a1e00; color: #c8a020; border: 1px solid #3a2e00; }
+  .badge-L { background: #2a1010; color: #c86060; border: 1px solid #3a2020; }
+
+  .card-elo {
+    font-size: 10px;
+    color: var(--text-faint);
+    font-family: 'DM Mono', monospace;
+    letter-spacing: 0.5px;
+  }
+
+  .card-stats {
+    display: flex;
+    gap: 10px;
+    font-size: 9px;
+    color: var(--text-faint);
+    letter-spacing: 0.5px;
+  }
+
+  .arena-hint {
+    text-align: center;
+    font-size: 9px;
+    color: var(--text-faint);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  .skip-row {
+    display: flex;
+    justify-content: center;
+  }
+
+  /* ── BUTTONS ── */
+  .btn {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    padding: 6px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .btn:hover { border-color: var(--text-muted); color: var(--text); }
+
+  .btn-accent {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-dim);
+  }
+  .btn-accent:hover { background: #c8a96e28; }
+
+  /* ── RESULTS ── */
+  .results-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .results-title {
+    font-family: 'Archivo Black', sans-serif;
+    font-size: 14px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  .results-actions { display: flex; gap: 8px; }
+
+  .rank-table { display: flex; flex-direction: column; }
+
+  .rank-row {
+    display: grid;
+    grid-template-columns: 36px 1fr 80px 60px 60px 70px;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-dim);
+    transition: background 0.1s;
+  }
+  .rank-row:hover { background: var(--bg-hover); }
+  .rank-row.rank-header {
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    cursor: default;
+    padding-bottom: 6px;
+  }
+  .rank-row.rank-header:hover { background: none; }
+
+  .rank-num {
+    font-family: 'Archivo Black', sans-serif;
+    font-size: 14px;
+    color: var(--text-muted);
+    text-align: right;
+  }
+  .rank-num.top3 { color: var(--accent); }
+
+  .rank-title {
+    font-family: 'Instrument Serif', serif;
+    font-size: 14px;
+    color: var(--text);
+    line-height: 1.3;
+  }
+  .rank-group { font-size: 9px; color: var(--text-muted); margin-top: 2px; letter-spacing: 0.5px; }
+
+  .rank-elo {
+    font-family: 'Archivo Black', sans-serif;
+    font-size: 13px;
+    color: var(--accent);
+    text-align: right;
+  }
+
+  .rank-wl {
+    font-size: 10px;
+    text-align: center;
+    color: var(--text-muted);
+  }
+  .rank-wl .w { color: var(--green); }
+  .rank-wl .l { color: #a04040; }
+
+  .rank-size { text-align: center; }
+
+  .rank-sync {
+    text-align: right;
+    font-size: 9px;
+    color: var(--text-faint);
+  }
+  .rank-sync.synced { color: var(--green); }
+  .rank-sync.syncing { color: var(--accent); animation: pulse 1s infinite; }
+  .rank-sync.error { color: #a04040; }
+
+  /* ── ERROR ── */
+  #view-error {
+    align-items: center;
+    justify-content: center;
+    min-height: 50vh;
+    gap: 16px;
+  }
+  .error-title {
+    font-family: 'Archivo Black', sans-serif;
+    font-size: 14px;
+    color: #a04040;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .error-msg { color: var(--text-muted); font-size: 11px; text-align: center; max-width: 400px; line-height: 1.8; }
+
+  /* ── FOOTER ── */
+  footer {
+    border-top: 1px solid var(--border-dim);
+    padding: 12px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 9px;
+    color: var(--text-faint);
+    letter-spacing: 0.5px;
+  }
+
+  @media (max-width: 600px) {
+    .arena { grid-template-columns: 1fr; }
+    .vs-col { padding: 8px 0; }
+    .rank-row { grid-template-columns: 28px 1fr 50px; }
+    .rank-wl, .rank-size, .rank-sync { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <div class="logo">Day<span>master</span></div>
+    <div class="header-sub">feature prioritizer</div>
+  </div>
+  <div class="header-meta">
+    <span><span class="status-dot loading" id="status-dot"></span><span id="status-text">Loading backlog...</span></span>
+    <span id="item-count" style="display:none;"></span>
+  </div>
+</header>
+
+<main>
+
+  <!-- LOADING -->
+  <div class="view active" id="view-loading" style="display:flex;">
+    <div class="load-text">Fetching your backlog from Notion...</div>
+  </div>
+
+  <!-- ERROR -->
+  <div class="view" id="view-error">
+    <div class="error-title">Could not load backlog</div>
+    <div class="error-msg" id="error-msg"></div>
+    <button class="btn" onclick="init()">↻ Retry</button>
+  </div>
+
+  <!-- MATCHUP -->
+  <div class="view" id="view-matchup">
+    <div class="round-header">
+      <span class="round-label" id="round-label">Round — of —</span>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" onclick="skip()">Skip pair</button>
+        <button class="btn btn-accent" onclick="showResults()">See results</button>
+      </div>
+    </div>
+    <div class="prog-wrap"><div class="prog-fill" id="prog"></div></div>
+
+    <div class="arena">
+      <div class="feature-card" id="card-a" onclick="pick(0)">
+        <div class="card-id" id="id-a"></div>
+        <div class="card-title" id="title-a"></div>
+        <div class="card-badges" id="badges-a"></div>
+        <div class="card-stats" id="stats-a"></div>
+      </div>
+      <div class="vs-col">VS</div>
+      <div class="feature-card" id="card-b" onclick="pick(1)">
+        <div class="card-id" id="id-b"></div>
+        <div class="card-title" id="title-b"></div>
+        <div class="card-badges" id="badges-b"></div>
+        <div class="card-stats" id="stats-b"></div>
+      </div>
+    </div>
+    <div class="arena-hint">click the feature you want built more</div>
+    <div class="skip-row">
+      <span style="font-size:9px;color:var(--text-faint);letter-spacing:1px;">Elo scores save to Notion after each pick</span>
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <div class="view" id="view-results">
+    <div class="results-header">
+      <div class="results-title">Priority Ranking</div>
+      <div class="results-actions">
+        <button class="btn" onclick="doMoreRounds()">↻ More rounds</button>
+        <button class="btn btn-accent" onclick="resetAll()">Reset all scores</button>
+      </div>
+    </div>
+    <div class="rank-table">
+      <div class="rank-row rank-header">
+        <div style="text-align:right;">#</div>
+        <div>Enhancement</div>
+        <div style="text-align:right;">Elo</div>
+        <div style="text-align:center;">W / L</div>
+        <div style="text-align:center;">Size</div>
+        <div style="text-align:right;">Notion</div>
+      </div>
+      <div id="rank-body"></div>
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  <span>Daymaster Feature Prioritizer</span>
+  <span id="footer-session">Session: 0 comparisons made</span>
+</footer>
+
+<script>
+const CFG = window.PRIORITIZER_CONFIG || {};
+const NOTION_TOKEN   = CFG.NOTION_TOKEN   || '';
+const DATABASE_ID    = CFG.DATABASE_ID    || 'f8089ae935124839bd346b10b89cdc3f';
+const NOTION_VERSION = '2022-06-28';
+
+let items       = [];
+let scores      = {};  // id -> { elo, wins, losses, pageUrl }
+let pairs       = [];
+let pairIdx     = 0;
+let picked      = false;
+let sessionComps = 0;
+
+// ── NOTION API ──────────────────────────────────────────────────────────────
+
+async function notionReq(path, method='GET', body=null) {
+  const opts = {
+    method,
+    headers: {
+      'Authorization': `Bearer ${NOTION_TOKEN}`,
+      'Notion-Version': NOTION_VERSION,
+      'Content-Type': 'application/json',
+    }
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(`https://api.notion.com/v1${path}`, opts);
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Notion ${res.status}: ${err}`);
+  }
+  return res.json();
+}
+
+async function fetchQueued() {
+  const data = await notionReq(`/databases/${DATABASE_ID}/query`, 'POST', {
+    filter: { property: 'Status', select: { equals: 'Queued' } },
+    sorts: [{ property: 'ID', direction: 'ascending' }],
+    page_size: 100
+  });
+
+  return data.results.map(page => {
+    const p = page.properties;
+    const complexity = p.Complexity?.select?.name || 'Medium';
+    const sizeMap = { Small: 'S', Medium: 'M', Large: 'L' };
+    return {
+      id:      p['ID']?.number || 0,
+      title:   p['Enhancement']?.title?.[0]?.plain_text || 'Untitled',
+      group:   p['Group']?.select?.name || '—',
+      type:    p['Type']?.select?.name || '—',
+      size:    sizeMap[complexity] || 'M',
+      elo:     p['Elo']?.number ?? 1000,
+      wins:    p['Wins']?.number ?? 0,
+      losses:  p['Losses']?.number ?? 0,
+      pageUrl: page.id,
+    };
+  });
+}
+
+async function saveToNotion(item) {
+  const s = scores[item.id];
+  await notionReq(`/pages/${item.pageUrl}`, 'PATCH', {
+    properties: {
+      'Elo':    { number: s.elo },
+      'Wins':   { number: s.wins },
+      'Losses': { number: s.losses },
+    }
+  });
+}
+
+// ── INIT ─────────────────────────────────────────────────────────────────────
+
+async function init() {
+  showView('loading');
+  setStatus('loading', 'Loading backlog...');
+  try {
+    if (!NOTION_TOKEN) throw new Error(
+      'No Notion token found.\n\nAdd your token to prioritizer-config.js:\n  NOTION_TOKEN: "secret_xxx..."'
+    );
+    items = await fetchQueued();
+    if (items.length < 2) throw new Error(`Only ${items.length} queued item(s) — need at least 2 to compare.`);
+
+    items.forEach(item => {
+      scores[item.id] = { elo: item.elo, wins: item.wins, losses: item.losses, pageUrl: item.pageUrl };
+    });
+
+    document.getElementById('item-count').textContent = `${items.length} queued items`;
+    document.getElementById('item-count').style.display = 'inline';
+    setStatus('ready', 'Connected to Notion');
+    buildPairs();
+    showView('matchup');
+    showPair();
+  } catch(e) {
+    setStatus('error', 'Connection failed');
+    document.getElementById('error-msg').textContent = e.message;
+    showView('error');
+  }
+}
+
+// ── MATCHUP ──────────────────────────────────────────────────────────────────
+
+function buildPairs() {
+  const shuffled = [...items].sort(() => Math.random() - 0.5);
+  pairs = [];
+  for (let i = 0; i + 1 < shuffled.length; i += 2) {
+    pairs.push([shuffled[i], shuffled[i+1]]);
+  }
+  pairIdx = 0;
+}
+
+function sizeLabel(s) { return s==='S'?'Small':s==='L'?'Large':'Medium'; }
+
+function renderCard(side, item) {
+  const s = side === 0 ? 'a' : 'b';
+  const sc = scores[item.id];
+  document.getElementById(`id-${s}`).textContent    = `#${item.id} — ${item.type}`;
+  document.getElementById(`title-${s}`).textContent = item.title;
+  document.getElementById(`badges-${s}`).innerHTML  = `
+    <span class="badge badge-group">${item.group}</span>
+    <span class="badge badge-${item.size}">${sizeLabel(item.size)}</span>
+  `;
+  document.getElementById(`stats-${s}`).innerHTML = `
+    <span>Elo ${sc.elo}</span>
+    <span style="color:var(--green)">▲${sc.wins}W</span>
+    <span style="color:#a04040">▼${sc.losses}L</span>
+  `;
+  const card = document.getElementById(`card-${s}`);
+  card.className = 'feature-card';
+}
+
+function showPair() {
+  if (pairIdx >= pairs.length) { showResults(); return; }
+  const [a, b] = pairs[pairIdx];
+  renderCard(0, a);
+  renderCard(1, b);
+  picked = false;
+  const pct = Math.round((pairIdx / pairs.length) * 100);
+  document.getElementById('prog').style.width = pct + '%';
+  document.getElementById('round-label').textContent =
+    `Round ${pairIdx + 1} of ${pairs.length}`;
+}
+
+function eloUpdate(winnerId, loserId) {
+  const K = 32;
+  const sw = scores[winnerId], sl = scores[loserId];
+  const ea = 1 / (1 + Math.pow(10, (sl.elo - sw.elo) / 400));
+  sw.elo = Math.round(sw.elo + K * (1 - ea));
+  sl.elo = Math.round(sl.elo + K * (0 - (1 - ea)));
+  sw.wins++;
+  sl.losses++;
+}
+
+async function pick(side) {
+  if (picked) return;
+  picked = true;
+  const [a, b] = pairs[pairIdx];
+  const winner = side === 0 ? a : b;
+  const loser  = side === 0 ? b : a;
+  eloUpdate(winner.id, loser.id);
+  document.getElementById('card-a').className = 'feature-card ' + (side===0?'winner':'loser');
+  document.getElementById('card-b').className = 'feature-card ' + (side===1?'winner':'loser');
+  sessionComps++;
+  document.getElementById('footer-session').textContent = `Session: ${sessionComps} comparison${sessionComps!==1?'s':''} made`;
+
+  // Save both to Notion in background
+  Promise.all([saveToNotion(winner), saveToNotion(loser)]).catch(e => console.warn('Notion save failed', e));
+
+  setTimeout(() => { pairIdx++; showPair(); }, 500);
+}
+
+function skip() {
+  if (picked) return;
+  pairIdx++;
+  showPair();
+}
+
+function doMoreRounds() {
+  buildPairs();
+  showView('matchup');
+  showPair();
+}
+
+// ── RESULTS ──────────────────────────────────────────────────────────────────
+
+function showResults() {
+  const sorted = [...items].sort((a,b) => scores[b.id].elo - scores[a.id].elo);
+  const body = document.getElementById('rank-body');
+  body.innerHTML = sorted.map((item, i) => {
+    const sc = scores[item.id];
+    const total = sc.wins + sc.losses;
+    const pct = total > 0 ? Math.round((sc.wins/total)*100) : '—';
+    return `
+      <div class="rank-row">
+        <div class="rank-num ${i<3?'top3':''}">${i+1}</div>
+        <div>
+          <div class="rank-title">${item.title}</div>
+          <div class="rank-group">#${item.id} · ${item.group}</div>
+        </div>
+        <div class="rank-elo">${sc.elo}</div>
+        <div class="rank-wl">
+          <span class="w">${sc.wins}W</span> / <span class="l">${sc.losses}L</span>
+        </div>
+        <div class="rank-size"><span class="badge badge-${item.size}">${sizeLabel(item.size)}</span></div>
+        <div class="rank-sync synced" id="sync-${item.id}">✓ saved</div>
+      </div>
+    `;
+  }).join('');
+  showView('results');
+}
+
+async function resetAll() {
+  if (!confirm('Reset all Elo scores to 1000 and clear win/loss counts?')) return;
+  items.forEach(item => { scores[item.id] = { ...scores[item.id], elo:1000, wins:0, losses:0 }; });
+  const saves = items.map(async item => {
+    const el = document.getElementById(`sync-${item.id}`);
+    if (el) { el.className = 'rank-sync syncing'; el.textContent = '↻ saving'; }
+    try {
+      await saveToNotion(item);
+      if (el) { el.className = 'rank-sync synced'; el.textContent = '✓ reset'; }
+    } catch(e) {
+      if (el) { el.className = 'rank-sync error'; el.textContent = '✗ failed'; }
+    }
+  });
+  await Promise.all(saves);
+  buildPairs();
+  showView('matchup');
+  showPair();
+}
+
+// ── UI HELPERS ───────────────────────────────────────────────────────────────
+
+function showView(name) {
+  ['loading','error','matchup','results'].forEach(v => {
+    const el = document.getElementById(`view-${v}`);
+    el.classList.toggle('active', v === name);
+    el.style.display = v === name ? 'flex' : 'none';
+  });
+}
+
+function setStatus(state, text) {
+  document.getElementById('status-dot').className = `status-dot ${state}`;
+  document.getElementById('status-text').textContent = text;
+}
+
+init();
+</script>
+</body>
+</html>
