@@ -137,9 +137,9 @@ function buildDefaultLayout() {
           { id: "morning",    type: "checklist",  config: { title: "Morning Setup", accent: "#c8a96e", items: ["Mise en Plac","Get Water","Review Yesterday","Dinner Plans?","Top 3 + Frog","iPad/Desk Setup","Gratitude + Intention","Push Ups / Yoga","Watch On / Charged","DON'T List","Clean Desk","8:30 Check-In"] } },
           { id: "donts",      type: "textprompt", config: { title: "DON'T", accent: "#a04040", bg: "#1a0a0a", border: "#3a1515", placeholder: "Things to avoid today..." } },
           { id: "priorities", type: "priorities", config: { title: "My Top Priorities", count: 3 } },
-          { id: "proj1",      type: "project",    config: { title: "Project 1", count: 5 } },
-          { id: "proj2",      type: "project",    config: { title: "Project 2", count: 4 } },
-          { id: "proj3",      type: "project",    config: { title: "Project 3", count: 4 } },
+          { id: "proj1",      type: "project",    config: { title: "Project 1", count: 5, defaultOpen: false } },
+          { id: "proj2",      type: "project",    config: { title: "Project 2", count: 4, defaultOpen: false } },
+          { id: "proj3",      type: "project",    config: { title: "Project 3", count: 4, defaultOpen: false } },
           { id: "delayed",    type: "freelist",   config: { title: "Delayed Google / Amazon", count: 6, placeholder: "Search later..." } },
         ]
       },
@@ -321,16 +321,60 @@ function TileProject({ config, data={}, onChange, editMode, onRemove, onConfig }
   const count = config.count||4;
   const items = data.items || Array(count).fill("");
   const [localTitle, setLocalTitle] = useState(data.title||config.title||"Project");
-  return React.createElement(CardShell, { title:localTitle, accent:"#555", editMode, onRemove, onConfig },
-    React.createElement("input", {
-      value:localTitle,
-      onChange:e=>{ setLocalTitle(e.target.value); onChange({...data,title:e.target.value}); },
-      placeholder:"Project name...",
-      style:{background:"transparent",border:"none",borderBottom:"1px solid #1e1e1e",
-        color:"#666",fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",
-        textTransform:"uppercase",marginBottom:"8px",width:"100%",padding:"2px 0"}
-    }),
-    React.createElement(BulletList, { items, onChange:v=>onChange({...data,items:v}), placeholder:"Task..." })
+  const isOpen = data._open !== undefined ? data._open : (config.defaultOpen !== false);
+  const hasContent = items.some(x=>x);
+  const doneCount = items.filter(x=>x).length;
+
+  const header = React.createElement("div", {
+    style:{display:"flex",alignItems:"center",gap:"8px",cursor:"pointer",userSelect:"none"},
+    onClick: e => { if(editMode) return; onChange({...data, _open:!isOpen}); }
+  },
+    React.createElement("span", { style:{color:isOpen?"#c8a96e":"#555",fontSize:"12px",transition:"transform 0.2s",display:"inline-block",transform:isOpen?"rotate(90deg)":"rotate(0deg)"} }, "▶"),
+    editMode
+      ? React.createElement("input", {
+          value:localTitle,
+          onClick:e=>e.stopPropagation(),
+          onChange:e=>{ setLocalTitle(e.target.value); onChange({...data,title:e.target.value}); },
+          style:{background:"transparent",border:"none",borderBottom:"1px solid #1e1e1e",
+            color:"#888",fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",
+            textTransform:"uppercase",flex:1,padding:"2px 0"}
+        })
+      : React.createElement("span", {
+          style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",
+            textTransform:"uppercase",color:isOpen?"#888":"#555",flex:1}
+        }, localTitle),
+    !isOpen && hasContent && React.createElement("span", {
+      style:{fontSize:"9px",color:"#4a7a4a",background:"#1a2a1a",border:"1px solid #2a4a2a",
+        borderRadius:"3px",padding:"1px 6px"}
+    }, `${doneCount} items`),
+    editMode && React.createElement("div", { style:{display:"flex",gap:"3px",marginLeft:"auto"}, onClick:e=>e.stopPropagation() },
+      React.createElement("button", { onClick:onConfig, style:{background:"#2a2a2a",border:"none",color:"#aaa",width:"20px",height:"20px",borderRadius:"3px",cursor:"pointer",fontSize:"10px"} }, "⚙"),
+      React.createElement("button", { onClick:onRemove, style:{background:"#5a1a1a",border:"none",color:"#aaa",width:"20px",height:"20px",borderRadius:"3px",cursor:"pointer",fontSize:"10px"} }, "✕")
+    )
+  );
+
+  return React.createElement("div", {
+    style:{background:"#161616",border:`1px solid ${isOpen?"#252525":"#1e1e1e"}`,
+      borderLeft:`3px solid ${isOpen?"#c8a96e55":"#333"}`,borderRadius:"6px",
+      padding:isOpen?"13px":"8px 13px",transition:"all 0.2s",position:"relative"}
+  },
+    header,
+    isOpen && React.createElement("div", { style:{marginTop:"10px",paddingTop:"10px",borderTop:"1px solid #1e1e1e"} },
+      React.createElement(BulletList, { items, onChange:v=>onChange({...data,items:v}), placeholder:"Task..." })
+    )
+  );
+}
+
+function AddProjectButton({ colId, onAdd }) {
+  return React.createElement("button", {
+    onClick: () => onAdd(colId, "project"),
+    style:{width:"100%",background:"transparent",border:"1px dashed #2a2a2a",borderRadius:"6px",
+      padding:"8px",color:"#444",fontFamily:"'DM Mono',monospace",fontSize:"10px",
+      cursor:"pointer",letterSpacing:"0.5px",display:"flex",alignItems:"center",justifyContent:"center",gap:"6px",
+      transition:"all 0.15s"}
+  },
+    React.createElement("span", { style:{fontSize:"14px"} }, "+"),
+    "Add Project"
   );
 }
 
@@ -908,7 +952,9 @@ function App() {
                   allDayData: todayData,
                 })
               )
-            )
+            ),
+            col.id === "col-left" && !editMode &&
+              React.createElement(AddProjectButton, { colId: col.id, onAdd: addTile })
           )
         )
       )
