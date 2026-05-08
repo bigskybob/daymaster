@@ -11,6 +11,7 @@ const CLIENT_ID = CFG.GOOGLE_CLIENT_ID || "";
 const APP_URL = CFG.APP_URL || window.location.origin;
 const DRIVE_FOLDER = CFG.DRIVE_FOLDER || "Daymaster";
 const LOCAL_KEY = "daymaster-v2-local";
+const THEME_KEY  = "daymaster-theme";
 const SCOPES = "https://www.googleapis.com/auth/drive.file";
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -293,7 +294,7 @@ function AutoTA({ value, onChange, placeholder, style = {} }) {
     ref, value, rows: 1, placeholder,
     onChange: e => { onChange(e.target.value); e.target.style.height="auto"; e.target.style.height=e.target.scrollHeight+"px"; },
     onFocus: e => { e.target.style.height="auto"; e.target.style.height=e.target.scrollHeight+"px"; },
-    style: { background:"transparent", border:"none", borderBottom:"1px solid #222", color:"#e8e4dc",
+    style: { background:"transparent", border:"none", borderBottom:"1px solid var(--input-border)", color:"var(--text)",
       fontFamily:"'DM Mono',monospace", fontSize:"12px", padding:"3px 2px", resize:"none",
       overflow:"hidden", lineHeight:1.6, minHeight:"22px", width:"100%", ...style }
   });
@@ -303,7 +304,7 @@ function BulletList({ items, onChange, placeholder="..." }) {
   return React.createElement("div", { style:{display:"flex",flexDirection:"column",gap:"4px"} },
     items.map((item,i) =>
       React.createElement("div", { key:i, style:{display:"flex",alignItems:"flex-start",gap:"6px"} },
-        React.createElement("span", { style:{color:"#444",fontSize:"13px",paddingTop:"2px",flexShrink:0} }, "○"),
+        React.createElement("span", { style:{color:"var(--text-faint)",fontSize:"13px",paddingTop:"2px",flexShrink:0} }, "○"),
         React.createElement(AutoTA, { value:item, placeholder,
           onChange: v => { const n=[...items]; n[i]=v; onChange(n); } })
       )
@@ -313,7 +314,7 @@ function BulletList({ items, onChange, placeholder="..." }) {
 
 function CB({ checked, onChange, label, strike=false }) {
   return React.createElement("label", {
-    style:{display:"flex",alignItems:"flex-start",gap:"7px",cursor:"pointer",padding:"3px 0",color:"#bbb",fontSize:"12px",lineHeight:1.5}
+    style:{display:"flex",alignItems:"flex-start",gap:"7px",cursor:"pointer",padding:"3px 0",color:"var(--text-dim)",fontSize:"12px",lineHeight:1.5}
   },
     React.createElement("input", { type:"checkbox", checked, onChange:e=>onChange(e.target.checked),
       style:{marginTop:"3px",flexShrink:0,accentColor:"#c8a96e",width:"13px",height:"13px"} }),
@@ -328,7 +329,7 @@ function iconBtnStyle(bg="#333") {
 
 function CardShell({ title, accent="#c8a96e", bg, border, children, editMode, onRemove, onConfig, style={} }) {
   return React.createElement("div", {
-    style:{ background:bg||"#161616", border:`1px solid ${border||"#252525"}`,
+    style:{ background:bg||"var(--bg-card)", border:`1px solid ${border||"var(--border)"}`,
       borderLeft:`3px solid ${accent}`, borderRadius:"6px", padding:"13px",
       position:"relative", ...style }
   },
@@ -338,8 +339,8 @@ function CardShell({ title, accent="#c8a96e", bg, border, children, editMode, on
     ),
     React.createElement("div", {
       style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",
-        textTransform:"uppercase",color:"#555",marginBottom:"9px",paddingBottom:"5px",
-        borderBottom:"1px solid #1e1e1e",paddingRight:editMode?"50px":"0"}
+        textTransform:"uppercase",color:"var(--text-muted)",marginBottom:"9px",paddingBottom:"5px",
+        borderBottom:"1px solid var(--border-dim)",paddingRight:editMode?"50px":"0"}
     }, title),
     children
   );
@@ -469,12 +470,12 @@ function TileProject({ config, data={}, onChange, editMode, onRemove, onConfig }
   );
 
   return React.createElement("div", {
-    style:{background:"#161616",border:`1px solid ${isOpen?"#252525":"#1e1e1e"}`,
+    style:{background:"var(--bg-card)",border:`1px solid ${isOpen?"var(--border)":"var(--border-dim)"}`,
       borderLeft:`3px solid ${isOpen?"#c8a96e55":"#333"}`,borderRadius:"6px",
       padding:isOpen?"13px":"8px 13px",transition:"all 0.2s",position:"relative"}
   },
     header,
-    isOpen && React.createElement("div", { style:{marginTop:"10px",paddingTop:"10px",borderTop:"1px solid #1e1e1e"} },
+    isOpen && React.createElement("div", { style:{marginTop:"10px",paddingTop:"10px",borderTop:"1px solid var(--border-dim)"} },
       React.createElement("input", {
         value: localTitle,
         onChange: e => { setLocalTitle(e.target.value); onChange({...data, title:e.target.value}); },
@@ -1060,19 +1061,19 @@ function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDay
 
 function TileLibrary({ onAdd, columns }) {
   const [col, setCol] = useState(columns[0]?.id||"");
-  return React.createElement("div", { style:{background:"#111",border:"1px solid #252525",borderRadius:"6px",padding:"14px",marginBottom:"14px"} },
+  return React.createElement("div", { style:{background:"var(--bg-hover)",border:"1px solid var(--border)",borderRadius:"6px",padding:"14px",marginBottom:"14px"} },
     React.createElement("div", { style:{display:"flex",alignItems:"center",gap:"10px",marginBottom:"10px",flexWrap:"wrap"} },
-      React.createElement("span", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"#555"} }, "Add to column:"),
+      React.createElement("span", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-muted)"} }, "Add to column:"),
       columns.map(c => React.createElement("button", { key:c.id, onClick:()=>setCol(c.id),
-        style:{background:col===c.id?"#c8a96e22":"#1a1a1a",border:`1px solid ${col===c.id?"#c8a96e":"#2a2a2a"}`,
-          color:col===c.id?"#c8a96e":"#666",fontSize:"10px",padding:"3px 10px",borderRadius:"3px",cursor:"pointer",fontFamily:"'DM Mono',monospace"} },
+        style:{background:col===c.id?"var(--accent-dim)":"var(--bg-card)",border:`1px solid ${col===c.id?"var(--accent)":"var(--border)"}`,
+          color:col===c.id?"var(--accent)":"var(--text-dim)",fontSize:"10px",padding:"3px 10px",borderRadius:"3px",cursor:"pointer",fontFamily:"'DM Mono',monospace"} },
         c.id
       ))
     ),
     React.createElement("div", { style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(90px,1fr))",gap:"6px"} },
       Object.entries(TILE_TYPES).map(([type,{label,icon}]) =>
         React.createElement("button", { key:type, onClick:()=>onAdd(col,type),
-          style:{background:"#1a1a1a",border:"1px solid #2a2a2a",color:"#888",fontFamily:"'DM Mono',monospace",
+          style:{background:"var(--bg-card)",border:"1px solid var(--border)",color:"var(--text-dim)",fontFamily:"'DM Mono',monospace",
             fontSize:"10px",padding:"8px 6px",borderRadius:"4px",cursor:"pointer",textAlign:"center",
             display:"flex",flexDirection:"column",alignItems:"center",gap:"3px"} },
           React.createElement("span", { style:{fontSize:"16px"} }, icon),
@@ -1090,21 +1091,21 @@ function ConfigModal({ tile, onSave, onClose }) {
   return React.createElement("div", {
     style:{position:"fixed",inset:0,background:"#000b",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}
   },
-    React.createElement("div", { style:{background:"#1a1a1a",border:"1px solid #333",borderRadius:"8px",padding:"22px",width:"360px",maxHeight:"80vh",overflow:"auto"} },
-      React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"12px",color:"#c8a96e",marginBottom:"16px",letterSpacing:"1px"} },
+    React.createElement("div", { style:{background:"var(--bg-hover)",border:"1px solid var(--border)",borderRadius:"8px",padding:"22px",width:"360px",maxHeight:"80vh",overflow:"auto"} },
+      React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"12px",color:"var(--accent)",marginBottom:"16px",letterSpacing:"1px"} },
         `Configure: ${TILE_TYPES[tile.type]?.label||tile.type}`
       ),
       Object.entries(cfg).map(([k,v]) => {
         if (k.startsWith("_")) return null;
-        const label = React.createElement("div", { style:{fontSize:"9px",color:"#555",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"} }, k);
-        const inputStyle = {width:"100%",background:"#111",border:"1px solid #2a2a2a",borderRadius:"3px",color:"#e8e4dc",fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"6px 8px"};
+        const label = React.createElement("div", { style:{fontSize:"9px",color:"var(--text-muted)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"} }, k);
+        const inputStyle = {width:"100%",background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"3px",color:"var(--text)",fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"6px 8px"};
         if (typeof v === "string") return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
           label, React.createElement("input", { value:v, onChange:e=>setCfg({...cfg,[k]:e.target.value}), style:inputStyle }));
         if (typeof v === "number") return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
           label, React.createElement("input", { type:"number", value:v, onChange:e=>setCfg({...cfg,[k]:+e.target.value}), style:inputStyle }));
         if (Array.isArray(v)) return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
           label,
-          React.createElement("div", { style:{fontSize:"9px",color:"#444",marginBottom:"3px"} }, "one item per line"),
+          React.createElement("div", { style:{fontSize:"9px",color:"var(--text-faint)",marginBottom:"3px"} }, "one item per line"),
           React.createElement("textarea", { value:v.join("\n"), rows:Math.max(3,v.length+1),
             onChange:e=>setCfg({...cfg,[k]:e.target.value.split("\n")}),
             style:{...inputStyle,resize:"vertical"} }));
@@ -1112,10 +1113,10 @@ function ConfigModal({ tile, onSave, onClose }) {
       }),
       React.createElement("div", { style:{display:"flex",gap:"8px",marginTop:"16px"} },
         React.createElement("button", { onClick:()=>onSave(cfg),
-          style:{flex:1,background:"#c8a96e22",border:"1px solid #c8a96e",color:"#c8a96e",fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"8px",borderRadius:"4px",cursor:"pointer"} },
+          style:{flex:1,background:"var(--accent-dim)",border:"1px solid var(--accent)",color:"var(--accent)",fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"8px",borderRadius:"4px",cursor:"pointer"} },
           "Save"),
         React.createElement("button", { onClick:onClose,
-          style:{flex:1,background:"#1e1e1e",border:"1px solid #333",color:"#888",fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"8px",borderRadius:"4px",cursor:"pointer"} },
+          style:{flex:1,background:"var(--bg-card)",border:"1px solid var(--border)",color:"var(--text-dim)",fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"8px",borderRadius:"4px",cursor:"pointer"} },
           "Cancel")
       )
     )
@@ -1141,8 +1142,8 @@ function HistoryView({ store }) {
       React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"#444",marginBottom:"10px"} }, "Past Days"),
       days.map(([key]) => React.createElement("button", { key, onClick:()=>setSel(key),
         style:{display:"block",width:"100%",textAlign:"left",background:sel===key?"#c8a96e22":"transparent",
-          border:`1px solid ${sel===key?"#c8a96e":"#1e1e1e"}`,borderRadius:"4px",padding:"8px 10px",
-          marginBottom:"4px",color:sel===key?"#c8a96e":"#777",fontFamily:"'DM Mono',monospace",
+          border:`1px solid ${sel===key?"var(--accent)":"var(--border-dim)"}`,borderRadius:"4px",padding:"8px 10px",
+          marginBottom:"4px",color:sel===key?"var(--accent)":"var(--text-dim)",fontFamily:"'DM Mono',monospace",
           fontSize:"10px",cursor:"pointer"} },
         fmtDate(key)
       ))
@@ -1153,8 +1154,8 @@ function HistoryView({ store }) {
         allTiles.map(tile => {
           const td = selData[tile.id];
           if (!td) return null;
-          return React.createElement("div", { key:tile.id, style:{background:"#161616",border:"1px solid #252525",borderRadius:"5px",padding:"13px",marginBottom:"10px"} },
-            React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"#555",marginBottom:"8px"} }, tile.config?.title||tile.id),
+          return React.createElement("div", { key:tile.id, style:{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:"5px",padding:"13px",marginBottom:"10px"} },
+            React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-muted)",marginBottom:"8px"} }, tile.config?.title||tile.id),
             // Render a readable summary based on tile type
             tile.type === "priorities" && React.createElement("div", null,
               (td.priorities||[]).filter(p=>p.text).map((p,i) =>
@@ -1192,10 +1193,10 @@ function HistoryView({ store }) {
 // ─── SYNC STATUS INDICATOR ────────────────────────────────────────────────────
 
 function SyncDot({ status }) {
-  const colors = { idle:"#444", saving:"#c8a96e", saved:"#4a7a4a", error:"#a04040", offline:"#555" };
+  const colors = { idle:"var(--text-faint)", saving:"#c8a96e", saved:"#4a7a4a", error:"#a04040", offline:"var(--text-muted)" };
   const labels = { idle:"", saving:"saving...", saved:"saved to Drive", error:"save failed", offline:"offline" };
-  return React.createElement("div", { style:{display:"flex",alignItems:"center",gap:"5px",fontSize:"9px",color:"#555",letterSpacing:"0.5px"} },
-    React.createElement("div", { style:{width:"6px",height:"6px",borderRadius:"50%",background:colors[status]||"#444",transition:"background 0.3s"} }),
+  return React.createElement("div", { style:{display:"flex",alignItems:"center",gap:"5px",fontSize:"9px",color:"var(--text-muted)",letterSpacing:"0.5px"} },
+    React.createElement("div", { style:{width:"6px",height:"6px",borderRadius:"50%",background:colors[status]||"var(--text-faint)",transition:"background 0.3s"} }),
     labels[status]
   );
 }
@@ -1210,8 +1211,16 @@ function App() {
   const [editMode, setEditMode]   = useState(false);
   const [configTile, setConfigTile] = useState(null);
   const [dragState, setDragState] = useState(null);
+  const [theme, setTheme]         = useState(() => localStorage.getItem(THEME_KEY) || "dark");
   const saveTimer = useRef(null);
   const isAuthed = authState === "authed";
+
+  // ── Theme ─────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
+  const toggleTheme = () => setTheme(t => t === "dark" ? "light" : "dark");
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -1362,7 +1371,7 @@ function App() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  if (!store) return React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#0f0f0f",color:"#555",fontFamily:"monospace"} }, "Loading...");
+  if (!store) return React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"var(--bg)",color:"var(--text-muted)",fontFamily:"monospace"} }, "Loading...");
 
   const layout = store.layouts[store.activeLayout||"default"];
   const todayData = store.days[todayKey()]||{};
@@ -1370,51 +1379,129 @@ function App() {
 
   const headerBtn = (label, onClick, active=false, extra={}) => React.createElement("button", {
     onClick,
-    style:{background:active?"#c8a96e22":"#1a1a1a",border:`1px solid ${active?"#c8a96e":"#2a2a2a"}`,
-      color:active?"#c8a96e":"#777",padding:"5px 12px",borderRadius:"4px",cursor:"pointer",
+    style:{background:active?"var(--accent-dim)":"var(--bg-hover)",border:`1px solid ${active?"var(--accent)":"var(--border)"}`,
+      color:active?"var(--accent)":"var(--text-dim)",padding:"5px 12px",borderRadius:"4px",cursor:"pointer",
       fontFamily:"'DM Mono',monospace",fontSize:"10px",letterSpacing:"0.5px",...extra}
   }, label);
 
-  return React.createElement("div", { style:{minHeight:"100vh",background:"#0f0f0f",color:"#e8e4dc",fontFamily:"'DM Mono',monospace",fontSize:"12px"} },
+  return React.createElement("div", { style:{minHeight:"100vh",background:"var(--bg)",color:"var(--text)",fontFamily:"'DM Mono',monospace",fontSize:"12px"} },
 
-    // GLOBAL STYLES
+    // GLOBAL STYLES — CSS variables drive both dark and light themes
     React.createElement("style", null, `
       @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Archivo+Black&family=Instrument+Serif:ital@0;1&display=swap');
+
+      /* ── Dark theme (default) ── */
+      :root, [data-theme="dark"] {
+        --bg:           #0f0f0f;
+        --bg-card:      #161616;
+        --bg-header:    #0c0c0c;
+        --bg-input:     transparent;
+        --bg-hover:     #1a1a1a;
+        --border:       #252525;
+        --border-dim:   #1e1e1e;
+        --border-head:  #1e1e1e;
+        --text:         #e8e4dc;
+        --text-dim:     #888;
+        --text-muted:   #555;
+        --text-faint:   #444;
+        --text-xfaint:  #333;
+        --accent:       #c8a96e;
+        --accent-dim:   #c8a96e22;
+        --scrollbar-track: #111;
+        --scrollbar-thumb: #2a2a2a;
+        --input-border: #222;
+        --sep:          #222;
+      }
+
+      /* ── Light theme ── */
+      [data-theme="light"] {
+        --bg:           #f5f0e8;
+        --bg-card:      #faf7f2;
+        --bg-header:    #ede8de;
+        --bg-input:     transparent;
+        --bg-hover:     #f0ebe0;
+        --border:       #d8cfc0;
+        --border-dim:   #e0d8cc;
+        --border-head:  #ccc4b4;
+        --text:         #2a2520;
+        --text-dim:     #6a5f50;
+        --text-muted:   #8a7f70;
+        --text-faint:   #a09080;
+        --text-xfaint:  #b0a090;
+        --accent:       #b08040;
+        --accent-dim:   #b0804022;
+        --scrollbar-track: #e8e0d0;
+        --scrollbar-thumb: #c0b8a8;
+        --input-border: #ccc4b4;
+        --sep:          #d8d0c0;
+      }
+
       *{box-sizing:border-box;margin:0;padding:0;}
       input,textarea,button{font-family:inherit;}
       input:focus,textarea:focus{outline:none;}
       textarea{display:block;}
       ::-webkit-scrollbar{width:4px;height:4px;}
-      ::-webkit-scrollbar-track{background:#111;}
-      ::-webkit-scrollbar-thumb{background:#2a2a2a;border-radius:2px;}
-      .tile-hover{outline:2px dashed #c8a96e55!important;}
+      ::-webkit-scrollbar-track{background:var(--scrollbar-track);}
+      ::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb);border-radius:2px;}
+      .tile-hover{outline:2px dashed var(--accent)55!important;}
+
+      /* ── Mobile layout ── */
+      @media (max-width: 768px) {
+        .dm-header {
+          flex-wrap: wrap;
+          padding: 10px 12px !important;
+          gap: 8px;
+        }
+        .dm-header-date { display: none !important; }
+        .dm-header-btns {
+          flex-wrap: wrap;
+          gap: 4px !important;
+          width: 100%;
+        }
+        .dm-header-btns button,
+        .dm-header-btns label {
+          font-size: 9px !important;
+          padding: 4px 8px !important;
+        }
+        .dm-grid {
+          display: flex !important;
+          flex-direction: column !important;
+          gap: 12px !important;
+        }
+        .dm-col-left   { order: 2; }
+        .dm-col-center { order: 1; }
+        .dm-col-right  { order: 3; }
+        .dm-main { padding: 10px !important; }
+      }
     `),
 
     // HEADER
-    React.createElement("div", { style:{background:"#0c0c0c",borderBottom:"1px solid #1e1e1e",padding:"12px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50} },
+    React.createElement("div", { className:"dm-header", style:{background:"var(--bg-header)",borderBottom:"1px solid var(--border-head)",padding:"12px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50} },
       React.createElement("div", { style:{display:"flex",alignItems:"center",gap:"12px"} },
         React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"20px",letterSpacing:"-0.5px"} },
-          "Day", React.createElement("span", { style:{color:"#c8a96e"} }, "master")
+          "Day", React.createElement("span", { style:{color:"var(--accent)"} }, "master")
         ),
         React.createElement(SyncDot, { status: isAuthed ? syncStatus : (authState==="no-config"?"offline":"idle") })
       ),
-      React.createElement("div", { style:{fontFamily:"'Instrument Serif',serif",fontStyle:"italic",fontSize:"13px",color:"#555"} },
+      React.createElement("div", { className:"dm-header-date", style:{fontFamily:"'Instrument Serif',serif",fontStyle:"italic",fontSize:"13px",color:"var(--text-muted)"} },
         `${DAYS[d.getDay()]}, ${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`
       ),
-      React.createElement("div", { style:{display:"flex",gap:"6px",alignItems:"center",flexWrap:"wrap"} },
+      React.createElement("div", { className:"dm-header-btns", style:{display:"flex",gap:"6px",alignItems:"center",flexWrap:"wrap"} },
         headerBtn("Today", ()=>setView("today"), view==="today"),
         headerBtn("History", ()=>setView("history"), view==="history"),
-        React.createElement("div", { style:{width:"1px",height:"18px",background:"#222",margin:"0 2px"} }),
+        React.createElement("div", { style:{width:"1px",height:"18px",background:"var(--sep)",margin:"0 2px"} }),
         headerBtn(editMode?"✓ Done":"✎ Layout", ()=>setEditMode(e=>!e), editMode,
-          editMode?{background:"#c8a96e",color:"#0f0f0f",border:"1px solid #c8a96e"}:{}),
-        React.createElement("div", { style:{width:"1px",height:"18px",background:"#222",margin:"0 2px"} }),
+          editMode?{background:"var(--accent)",color:"var(--bg)",border:"1px solid var(--accent)"}:{}),
+        React.createElement("div", { style:{width:"1px",height:"18px",background:"var(--sep)",margin:"0 2px"} }),
+        headerBtn(theme==="dark"?"☀ Light":"☾ Dark", toggleTheme),
+        React.createElement("div", { style:{width:"1px",height:"18px",background:"var(--sep)",margin:"0 2px"} }),
         !isAuthed && authState!=="authing" && React.createElement("button", {
           onClick:initGoogleAuth,
           style:{background:"#1a2a1a",border:"1px solid #3a6a3a",color:"#7ac97a",padding:"5px 12px",borderRadius:"4px",cursor:"pointer",fontFamily:"'DM Mono',monospace",fontSize:"10px"}
         }, authState==="no-config"?"⚙ Add Client ID":"↻ Connect Drive"),
-        authState==="authing" && React.createElement("span", { style:{color:"#555",fontSize:"10px"} }, "Connecting..."),
+        authState==="authing" && React.createElement("span", { style:{color:"var(--text-muted)",fontSize:"10px"} }, "Connecting..."),
         headerBtn("⬇ Backup", exportBackup),
-        React.createElement("label", { style:{background:"#1a1a1a",border:"1px solid #2a2a2a",color:"#777",padding:"5px 12px",borderRadius:"4px",cursor:"pointer",fontFamily:"'DM Mono',monospace",fontSize:"10px"} },
+        React.createElement("label", { style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",padding:"5px 12px",borderRadius:"4px",cursor:"pointer",fontFamily:"'DM Mono',monospace",fontSize:"10px"} },
           "⬆ Restore",
           React.createElement("input", { type:"file", accept:".json", style:{display:"none"}, onChange:importBackup })
         )
@@ -1424,12 +1511,12 @@ function App() {
     // VIEWS
     view==="history" && React.createElement(HistoryView, { store }),
 
-    view==="today" && React.createElement("div", { style:{padding:"16px"} },
+    view==="today" && React.createElement("div", { className:"dm-main", style:{padding:"16px"} },
       editMode && React.createElement(TileLibrary, { onAdd:addTile, columns:layout.columns }),
 
-      React.createElement("div", { style:{display:"grid",gridTemplateColumns:layout.columns.map(c=>`${c.width}fr`).join(" "),gap:"14px"} },
+      React.createElement("div", { className:"dm-grid", style:{display:"grid",gridTemplateColumns:layout.columns.map(c=>`${c.width}fr`).join(" "),gap:"14px"} },
         layout.columns.map(col =>
-          React.createElement("div", { key:col.id, style:{display:"flex",flexDirection:"column",gap:"12px"} },
+          React.createElement("div", { key:col.id, className:`dm-col-${col.id.replace("col-","")}`, style:{display:"flex",flexDirection:"column",gap:"12px"} },
             editMode && React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"8px",letterSpacing:"3px",textTransform:"uppercase",color:"#333",textAlign:"center",padding:"4px",border:"1px dashed #222",borderRadius:"4px"} }, col.id),
             col.tiles.map((tile, tileIdx) =>
               React.createElement("div", { key:tile.id,
