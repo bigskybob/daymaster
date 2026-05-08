@@ -155,7 +155,7 @@ function buildDefaultLayout() {
               10: { type: "checkin-any",     tileId: "checkin1"   }
             }
           } },
-          { id: "donts",      type: "textprompt", config: { title: "DON'T", accent: "#a04040", bg: "var(--bg-card)", border: "var(--border)", placeholder: "Things to avoid today..." } },
+          { id: "donts",      type: "textprompt", config: { title: "DON'T", accent: "#a04040", placeholder: "Things to avoid today..." } },
           { id: "priorities", type: "priorities", config: { title: "My Top Priorities", count: 3 } },
           { id: "proj1",      type: "project",    config: { title: "Project 1", count: 5, defaultOpen: false } },
           { id: "proj2",      type: "project",    config: { title: "Project 2", count: 4, defaultOpen: false } },
@@ -328,8 +328,11 @@ function iconBtnStyle(bg="var(--bg-hover)") {
 }
 
 function CardShell({ title, accent="#c8a96e", bg, border, children, editMode, onRemove, onConfig, style={} }) {
+  // Ignore hardcoded dark hex values from old saved configs — use CSS vars instead
+  const safeBg = (!bg || bg.startsWith('#')) ? undefined : bg;
+  const safeBorder = (!border || border.startsWith('#')) ? undefined : border;
   return React.createElement("div", {
-    style:{ background:bg||"var(--bg-card)", border:`1px solid ${border||"var(--border)"}`,
+    style:{ background:safeBg||"var(--bg-card)", border:`1px solid ${safeBorder||"var(--border)"}`,
       borderLeft:`3px solid ${accent}`, borderRadius:"6px", padding:"13px",
       position:"relative", ...style }
   },
