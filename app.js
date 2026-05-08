@@ -341,8 +341,8 @@ function TileProject({ config, data={}, onChange, editMode, onRemove, onConfig }
         })
       : React.createElement("span", {
           style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",
-            textTransform:"uppercase",color:isOpen?"#888":"#555",flex:1}
-        }, localTitle),
+            textTransform:"uppercase",color:isOpen?"#c8a96e":"#555",flex:1}
+        }, localTitle || "Untitled Project"),
     !isOpen && hasContent && React.createElement("span", {
       style:{fontSize:"9px",color:"#4a7a4a",background:"#1a2a1a",border:"1px solid #2a4a2a",
         borderRadius:"3px",padding:"1px 6px"}
@@ -360,6 +360,14 @@ function TileProject({ config, data={}, onChange, editMode, onRemove, onConfig }
   },
     header,
     isOpen && React.createElement("div", { style:{marginTop:"10px",paddingTop:"10px",borderTop:"1px solid #1e1e1e"} },
+      React.createElement("input", {
+        value: localTitle,
+        onChange: e => { setLocalTitle(e.target.value); onChange({...data, title:e.target.value}); },
+        placeholder: "Project name...",
+        style:{background:"transparent",border:"none",borderBottom:"1px solid #2a2a2a",
+          color:"#c8a96e",fontFamily:"'Archivo Black',sans-serif",fontSize:"11px",letterSpacing:"1.5px",
+          textTransform:"uppercase",width:"100%",padding:"3px 0",marginBottom:"10px"}
+      }),
       React.createElement(BulletList, { items, onChange:v=>onChange({...data,items:v}), placeholder:"Task..." })
     )
   );
