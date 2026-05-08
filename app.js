@@ -181,6 +181,7 @@ function buildDefaultLayout() {
         tiles: [
           { id: "exercise", type: "checklist", config: { title: "Exercise Today", accent: "#4a7a4a", items: ["Yoga","Sober","Weights","Garage","24hr Fitness"] } },
           { id: "planks",   type: "planks",    config: { title: "Planks" } },
+          { id: "dangles",  type: "dangles",   config: { title: "Dangles" } },
           { id: "pushups",  type: "pushups",   config: { title: "Pushup Tracker" } },
           { id: "numbers",  type: "numbers",   config: { title: "Daily Numbers" } },
         ]
@@ -210,6 +211,7 @@ const TILE_TYPES = {
   counter:    { label: "Counter",        icon: "+" },
   notes:      { label: "Notes",          icon: "✎" },
   foodlog:    { label: "Food Log",       icon: "⬡" },
+  dangles:    { label: "Dangles",         icon: "↕" },
 };
 
 function defaultConfig(type) {
@@ -227,6 +229,7 @@ function defaultConfig(type) {
     numbers:    { title: "Daily Numbers" },
     notes:      { title: "Notes" },
     foodlog:    { title: "Food Log", meals: ["Breakfast","Lunch","Dinner","Snack"] },
+    dangles:    { title: "Dangles" },
     counter:    { title: "Counter", target: 10 },
   };
   return map[type] || { title: type };
@@ -600,16 +603,240 @@ function TilePushups({ config, data={}, onChange, editMode, onRemove, onConfig }
   );
 }
 
+// ─── AUDIO ENGINE ────────────────────────────────────────────────────────────
+
+function playBeep(freq=880, duration=0.08, vol=0.3) {
+  try {
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = freq;
+    osc.type = "sine";
+    gain.gain.setValueAtTime(vol, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + duration);
+  } catch(e) {}
+}
+
+function playDone() {
+  // Three ascending tones
+  setTimeout(()=>playBeep(523, 0.15, 0.4), 0);
+  setTimeout(()=>playBeep(659, 0.15, 0.4), 160);
+  setTimeout(()=>playBeep(784, 0.35, 0.5), 320);
+}
+
+// ─── FULLSCREEN TIMER ─────────────────────────────────────────────────────────
+
+function FullscreenTimer({ seconds, label, onComplete, onCancel }) {
+  const [remaining, setRemaining] = useState(seconds);
+  const [running, setRunning] = useState(true);
+  const intervalRef = useRef(null);
+  const remainingRef = useRef(seconds);
+
+  useEffect(() => {
+    remainingRef.current = remaining;
+  }, [remaining]);
+
+  useEffect(() => {
+    if (!running) return;
+    intervalRef.current = setInterval(() => {
+      const next = remainingRef.current - 1;
+      // Countdown beeps for last 10 seconds
+      if (next > 0 && next <= 10) playBeep(660, 0.06, 0.25);
+      if (next <= 0) {
+        clearInterval(intervalRef.current);
+        setRemaining(0);
+        playDone();
+        setTimeout(onComplete, 800);
+      } else {
+        setRemaining(next);
+      }
+    }, 1000);
+    return () => clearInterval(intervalRef.current);
+  }, [running]);
+
+  const pct = (remaining / seconds) * 100;
+  const mins = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+  const timeStr = `${mins}:${secs.toString().padStart(2,"0")}`;
+  const isLow = remaining <= 10;
+  const color = remaining === 0 ? "#4a7a4a" : isLow ? "#c84a4a" : remaining <= seconds * 0.4 ? "#c8a020" : "#c8a96e";
+
+  return React.createElement("div", {
+    style:{position:"fixed",inset:0,background:"#050505",zIndex:9999,
+      display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"24px"}
+  },
+    // Arc progress
+    React.createElement("svg", { width:"260", height:"260", viewBox:"0 0 260 260" },
+      React.createElement("circle", { cx:"130",cy:"130",r:"110",fill:"none",stroke:"#1a1a1a",strokeWidth:"12" }),
+      React.createElement("circle", { cx:"130",cy:"130",r:"110",fill:"none",stroke:color,strokeWidth:"12",
+        strokeDasharray:`${2*Math.PI*110}`,
+        strokeDashoffset:`${2*Math.PI*110*(1-pct/100)}`,
+        strokeLinecap:"round",
+        style:{transform:"rotate(-90deg)",transformOrigin:"130px 130px",transition:"stroke-dashoffset 0.9s linear, stroke 0.3s"} }),
+      React.createElement("text", { x:"130",y:"118",textAnchor:"middle",
+        style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"58px",fill:color,transition:"fill 0.3s"} }, timeStr),
+      React.createElement("text", { x:"130",y:"152",textAnchor:"middle",
+        style:{fontFamily:"'DM Mono',monospace",fontSize:"13px",fill:"#555",letterSpacing:"2px",textTransform:"uppercase"} }, label)
+    ),
+    // Controls
+    React.createElement("div", { style:{display:"flex",gap:"14px"} },
+      React.createElement("button", {
+        onClick: () => { setRunning(r=>!r); if(!running) {} },
+        style:{background:"#1a1a1a",border:`1px solid ${running?"#555":"#c8a96e"}`,color:running?"#888":"#c8a96e",
+          fontFamily:"'DM Mono',monospace",fontSize:"13px",padding:"10px 28px",borderRadius:"6px",cursor:"pointer",letterSpacing:"1px"}
+      }, running ? "⏸ Pause" : "▶ Resume"),
+      React.createElement("button", {
+        onClick: onCancel,
+        style:{background:"#1a0a0a",border:"1px solid #5a1a1a",color:"#a04040",
+          fontFamily:"'DM Mono',monospace",fontSize:"13px",padding:"10px 28px",borderRadius:"6px",cursor:"pointer",letterSpacing:"1px"}
+      }, "✕ Cancel")
+    ),
+    isLow && remaining > 0 && React.createElement("div", {
+      style:{fontSize:"11px",color:"#c84a4a",letterSpacing:"3px",textTransform:"uppercase",
+        animation:"pulse 0.5s infinite alternate"}
+    }, "Almost there"),
+    React.createElement("style", null, "@keyframes pulse { from{opacity:0.4} to{opacity:1} }")
+  );
+}
+
 function TilePlanks({ config, data={}, onChange, editMode, onRemove, onConfig }) {
+  const slots = [["am","AM"],["noon","Noon"],["afternoon","PM"],["evening","Eve"]];
   const p = data.planks||{};
-  return React.createElement(CardShell, { title:config.title||"Planks", accent:"#4a7a4a", editMode, onRemove, onConfig },
-    React.createElement("div", { style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"5px"} },
-      [["am","AM"],["noon","Noon"],["afternoon","PM"],["evening","Eve"]].map(([k,label]) =>
-        React.createElement("button", { key:k, onClick:()=>onChange({...data,planks:{...p,[k]:!p[k]}}),
-          style:{background:p[k]?"#2a3a2a":"#1a1a1a",border:`1px solid ${p[k]?"#4a7a4a":"#2a2a2a"}`,
-            color:p[k]?"#7ac97a":"#555",fontFamily:"'DM Mono',monospace",fontSize:"11px",
-            padding:"7px 4px",borderRadius:"3px",cursor:"pointer"} }, label)
+  const [timerSecs, setTimerSecs] = useState(data.timerSecs||120);
+  const [running, setRunning] = useState(false);
+  const doneCount = slots.filter(([k])=>p[k]).length;
+
+  const adjustTimer = delta => {
+    const next = Math.max(10, Math.min(600, timerSecs + delta));
+    setTimerSecs(next);
+    onChange({...data, timerSecs: next});
+  };
+
+  const handleComplete = () => {
+    setRunning(false);
+    // Check next unchecked slot
+    const nextSlot = slots.find(([k])=>!p[k]);
+    if (nextSlot) {
+      onChange({...data, planks:{...p, [nextSlot[0]]:true}, timerSecs});
+    }
+  };
+
+  const mins = Math.floor(timerSecs/60);
+  const secs = timerSecs%60;
+  const timeStr = `${mins}:${secs.toString().padStart(2,"0")}`;
+
+  return React.createElement(React.Fragment, null,
+    running && React.createElement(FullscreenTimer, {
+      seconds: timerSecs, label: "Planks",
+      onComplete: handleComplete,
+      onCancel: () => setRunning(false)
+    }),
+    React.createElement(CardShell, { title:config.title||"Planks", accent:"#4a7a4a", editMode, onRemove, onConfig },
+      // Session slots
+      React.createElement("div", { style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"5px",marginBottom:"10px"} },
+        slots.map(([k,label]) =>
+          React.createElement("button", { key:k, onClick:()=>onChange({...data,planks:{...p,[k]:!p[k]}}),
+            style:{background:p[k]?"#2a3a2a":"#1a1a1a",border:`1px solid ${p[k]?"#4a7a4a":"#2a2a2a"}`,
+              color:p[k]?"#7ac97a":"#555",fontFamily:"'DM Mono',monospace",fontSize:"11px",
+              padding:"7px 4px",borderRadius:"3px",cursor:"pointer"} }, label)
+        )
+      ),
+      // Progress
+      doneCount > 0 && React.createElement("div", { style:{fontSize:"9px",color:"#4a7a4a",marginBottom:"8px",letterSpacing:"0.5px"} },
+        `${doneCount} session${doneCount>1?"s":""} done today`
+      ),
+      // Timer controls
+      React.createElement("div", { style:{height:"1px",background:"#1e1e1e",marginBottom:"10px"} }),
+      React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"6px"} },
+        React.createElement("button", { onClick:()=>adjustTimer(-10),
+          style:{background:"#1a1a1a",border:"1px solid #2a2a2a",color:"#666",width:"28px",height:"28px",
+            borderRadius:"4px",cursor:"pointer",fontSize:"14px",lineHeight:"28px",textAlign:"center"} }, "−"),
+        React.createElement("div", { style:{flex:1,textAlign:"center"} },
+          React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"22px",color:"#4a7a4a",letterSpacing:"1px"} }, timeStr),
+          React.createElement("div", { style:{fontSize:"9px",color:"#444",letterSpacing:"1px",textTransform:"uppercase",marginTop:"1px"} }, "duration")
+        ),
+        React.createElement("button", { onClick:()=>adjustTimer(10),
+          style:{background:"#1a1a1a",border:"1px solid #2a2a2a",color:"#666",width:"28px",height:"28px",
+            borderRadius:"4px",cursor:"pointer",fontSize:"14px",lineHeight:"28px",textAlign:"center"} }, "+"),
+        React.createElement("button", { onClick:()=>setRunning(true),
+          style:{background:"#1a3a1a",border:"1px solid #3a6a3a",color:"#7ac97a",padding:"6px 14px",
+            borderRadius:"4px",cursor:"pointer",fontFamily:"'DM Mono',monospace",fontSize:"11px",letterSpacing:"0.5px"} },
+          "▶ Start")
       )
+    )
+  );
+}
+
+function TileDangles({ config, data={}, onChange, editMode, onRemove, onConfig }) {
+  const checks = data.checks || [false, false, false, false];
+  const [running, setRunning] = useState(false);
+  const doneCount = checks.filter(Boolean).length;
+  const allDone = doneCount === 4;
+
+  const handleComplete = () => {
+    setRunning(false);
+    const nextIdx = checks.findIndex(c=>!c);
+    if (nextIdx !== -1) {
+      const n = [...checks]; n[nextIdx] = true;
+      onChange({...data, checks: n});
+    }
+  };
+
+  return React.createElement(React.Fragment, null,
+    running && React.createElement(FullscreenTimer, {
+      seconds: 30, label: "Dangle",
+      onComplete: handleComplete,
+      onCancel: () => setRunning(false)
+    }),
+    React.createElement(CardShell, {
+      title: config.title||"Dangles",
+      accent: allDone ? "#4a7a4a" : "#6a4a8a",
+      style: allDone ? {background:"#0a1a0a"} : {},
+      editMode, onRemove, onConfig
+    },
+      // Status line
+      React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"10px"} },
+        React.createElement("div", { style:{fontSize:"9px",color:allDone?"#4a7a4a":"#6a4a8a",letterSpacing:"1px",textTransform:"uppercase"} },
+          allDone ? "2:00 complete ✓" : `${doneCount * 30}s / 2:00`
+        ),
+        // Progress dots
+        React.createElement("div", { style:{display:"flex",gap:"5px"} },
+          checks.map((done,i) => React.createElement("div", { key:i,
+            style:{width:"10px",height:"10px",borderRadius:"50%",
+              background: done ? "#4a7a4a" : "#2a2a2a",
+              border:`1px solid ${done?"#4a7a4a":"#333"}`,
+              transition:"all 0.3s"}
+          }))
+        )
+      ),
+      // 4 checkboxes — each = 30 sec hang
+      React.createElement("div", { style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"6px",marginBottom:"10px"} },
+        checks.map((done, i) =>
+          React.createElement("button", { key:i,
+            onClick: () => { const n=[...checks]; n[i]=!n[i]; onChange({...data,checks:n}); },
+            style:{background:done?"#1a2a1a":"#161616",border:`1px solid ${done?"#4a7a4a":"#2a2a2a"}`,
+              borderRadius:"5px",padding:"10px 4px",cursor:"pointer",
+              display:"flex",flexDirection:"column",alignItems:"center",gap:"4px"}
+          },
+            React.createElement("span", { style:{fontSize:"16px"} }, done ? "✓" : "○"),
+            React.createElement("span", { style:{fontSize:"9px",color:done?"#4a7a4a":"#444",fontFamily:"'DM Mono',monospace",letterSpacing:"0.5px"} }, "0:30")
+          )
+        )
+      ),
+      // Start button
+      React.createElement("div", { style:{height:"1px",background:"#1e1e1e",marginBottom:"10px"} }),
+      React.createElement("button", {
+        onClick: () => { if (!allDone) setRunning(true); },
+        disabled: allDone,
+        style:{width:"100%",background:allDone?"#0a1a0a":"#1a0a2a",
+          border:`1px solid ${allDone?"#2a4a2a":"#4a2a6a"}`,
+          color:allDone?"#4a7a4a":"#9a7ab0",padding:"8px",borderRadius:"4px",
+          cursor:allDone?"default":"pointer",fontFamily:"'DM Mono',monospace",
+          fontSize:"11px",letterSpacing:"1px"}
+      }, allDone ? "✓ All sets done" : `▶ Start set ${doneCount+1} of 4`)
     )
   );
 }
@@ -628,11 +855,15 @@ function TileNumbers({ config, data={}, editMode, onRemove, onConfig, allDayData
   const foodDone = (foodData?.logs||[]).filter(l=>l?.done).length;
   const foodTotal = (foodData?.logs||[]).length||4;
 
+  const dangleData = Object.values(d).find(t=>t?._type==="dangles");
+  const danglesDone = (dangleData?.checks||[]).filter(Boolean).length;
+
   const stats = [
     { label:"Priorities Done", val:priDone, target:priTotal||3, color:"#c8a96e" },
     { label:"Check-ins Done", val:checkinsDone, target:Math.max(checkins.length,1), color:"#8B8B4B" },
     { label:"Meals Logged", val:foodDone, target:foodTotal, color:"#c8670a" },
     { label:"Pushups Logged", val:pushupsTotal, target:150, color:"#4a7a7a" },
+    { label:"Dangles Done", val:danglesDone, target:4, color:"#7a5a9a" },
   ];
 
   return React.createElement(CardShell, { title:config.title||"Daily Numbers", accent:"#c8a96e",
@@ -741,6 +972,7 @@ function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDay
     case "numbers":    return React.createElement(TileNumbers, props);
     case "notes":      return React.createElement(TileNotes, props);
     case "foodlog":    return React.createElement(TileFoodLog, props);
+    case "dangles":    return React.createElement(TileDangles, props);
     case "counter":    return React.createElement(TileCounter, props);
     default: return React.createElement("div", { style:{color:"#555",padding:"12px",fontSize:"11px"} }, `Unknown: ${tile.type}`);
   }
