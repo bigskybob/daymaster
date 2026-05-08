@@ -1358,6 +1358,20 @@ function App() {
       const tiles=[...c.tiles]; const [t]=tiles.splice(from,1); tiles.splice(to,0,t); return {...c,tiles};
     })})), []);
 
+  const moveTileAcross = useCallback((fromColId, tileId, toColId) =>
+    mutateLayout(l => {
+      let tile = null;
+      const cols = l.columns.map(c => {
+        if (c.id !== fromColId) return c;
+        tile = c.tiles.find(t => t.id === tileId);
+        return { ...c, tiles: c.tiles.filter(t => t.id !== tileId) };
+      });
+      return { ...l, columns: cols.map(c => {
+        if (c.id !== toColId || !tile) return c;
+        return { ...c, tiles: [...c.tiles, tile] };
+      })};
+    }), []);
+
   const exportBackup = () => {
     const blob = new Blob([JSON.stringify(store,null,2)],{type:"application/json"});
     const url = URL.createObjectURL(blob);
@@ -1518,16 +1532,62 @@ function App() {
       editMode && React.createElement(TileLibrary, { onAdd:addTile, columns:layout.columns }),
 
       React.createElement("div", { className:"dm-grid", style:{display:"grid",gridTemplateColumns:layout.columns.map(c=>`${c.width}fr`).join(" "),gap:"14px"} },
-        layout.columns.map(col =>
-          React.createElement("div", { key:col.id, className:`dm-col-${col.id.replace("col-","")}`, style:{display:"flex",flexDirection:"column",gap:"12px"} },
+        layout.columns.map((col, colIdx) =>
+          React.createElement("div", { key:col.id, className:`dm-col-${col.id.replace("col-","")}`,
+            style:{display:"flex",flexDirection:"column",gap:"12px"},
+            onDragOver: e => e.preventDefault(),
+            onDrop: e => {
+              e.preventDefault();
+              if (!dragState) return;
+              if (dragState.colId === col.id) {
+                // same-column reorder — drop on column bg means move to end
+                setDragState(null);
+              } else {
+                // cross-column drop
+                moveTileAcross(dragState.colId, dragState.tileId, col.id);
+                setDragState(null);
+              }
+            }
+          },
             editMode && React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"8px",letterSpacing:"3px",textTransform:"uppercase",color:"var(--text-xfaint)",textAlign:"center",padding:"4px",border:"1px dashed var(--border-dim)",borderRadius:"4px"} }, col.id),
-            col.tiles.map((tile, tileIdx) =>
-              React.createElement("div", { key:tile.id,
+            col.tiles.map((tile, tileIdx) => {
+              const isDragging = dragState?.colId===col.id && dragState?.tileIdx===tileIdx;
+              const prevCol = colIdx > 0 ? layout.columns[colIdx-1] : null;
+              const nextCol = colIdx < layout.columns.length-1 ? layout.columns[colIdx+1] : null;
+              return React.createElement("div", { key:tile.id,
                 draggable:editMode,
-                onDragStart:()=>setDragState({colId:col.id,tileIdx}),
-                onDragOver:e=>e.preventDefault(),
-                onDrop:()=>{ if(dragState?.colId===col.id&&dragState.tileIdx!==tileIdx) moveTile(col.id,dragState.tileIdx,tileIdx); setDragState(null); },
-                style:{cursor:editMode?"grab":"default",opacity:dragState?.colId===col.id&&dragState.tileIdx===tileIdx?0.4:1,transition:"opacity 0.15s"} },
+                onDragStart: () => setDragState({colId:col.id, tileIdx, tileId:tile.id}),
+                onDragOver: e => e.preventDefault(),
+                onDrop: e => {
+                  e.stopPropagation();
+                  if (!dragState) return;
+                  if (dragState.colId === col.id && dragState.tileIdx !== tileIdx) {
+                    moveTile(col.id, dragState.tileIdx, tileIdx);
+                  } else if (dragState.colId !== col.id) {
+                    moveTileAcross(dragState.colId, dragState.tileId, col.id);
+                  }
+                  setDragState(null);
+                },
+                style:{cursor:editMode?"grab":"default", opacity:isDragging?0.4:1, transition:"opacity 0.15s", position:"relative"} },
+                // Cross-column arrow buttons in edit mode
+                editMode && React.createElement("div", {
+                  style:{position:"absolute",top:"7px",left:"7px",display:"flex",gap:"3px",zIndex:20}
+                },
+                  prevCol && React.createElement("button", {
+                    onClick: e => { e.stopPropagation(); moveTileAcross(col.id, tile.id, prevCol.id); },
+                    title: `Move to ${prevCol.id}`,
+                    style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",
+                      width:"20px",height:"20px",borderRadius:"3px",cursor:"pointer",fontSize:"11px",
+                      lineHeight:"20px",textAlign:"center",padding:0}
+                  }, "←"),
+                  nextCol && React.createElement("button", {
+                    onClick: e => { e.stopPropagation(); moveTileAcross(col.id, tile.id, nextCol.id); },
+                    title: `Move to ${nextCol.id}`,
+                    style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",
+                      width:"20px",height:"20px",borderRadius:"3px",cursor:"pointer",fontSize:"11px",
+                      lineHeight:"20px",textAlign:"center",padding:0}
+                  }, "→")
+                ),
                 React.createElement(RenderTile, {
                   tile,
                   data: todayData[tile.id]||{},
@@ -1537,8 +1597,8 @@ function App() {
                   onConfig: () => setConfigTile({tile, colId:col.id}),
                   allDayData: todayData,
                 })
-              )
-            ),
+              );
+            }),
             col.id === "col-left" && !editMode &&
               React.createElement(AddProjectButton, { colId: col.id, onAdd: addTile })
           )
