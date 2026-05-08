@@ -134,7 +134,26 @@ function buildDefaultLayout() {
       {
         id: "col-left", width: 22,
         tiles: [
-          { id: "morning",    type: "checklist",  config: { title: "Morning Setup", accent: "#c8a96e", items: ["Mise en Plac","Get Water","Review Yesterday","Dinner Plans?","Top 3 + Frog","iPad/Desk Setup","Gratitude + Intention","Push Ups / Yoga","Watch On / Charged","DON'T List","Clean Desk","8:30 Check-In"] } },
+          { id: "morning", type: "checklist", config: { title: "AM Routine", accent: "#c8a96e",
+            items: [
+              "Hydrate — water first",
+              "Supplements / meds",
+              "Move — stretch or walk",
+              "Review yesterday's incomplete",
+              "Set top 3 + frog",
+              "Gratitude + intention",
+              "Mise en Plac — desk ready",
+              "Watch on / devices charged",
+              "Review calendar",
+              "DON'T list set",
+              "8:30 check-in ready"
+            ],
+            rules: {
+              4: { type: "priorities-any",   tileId: "priorities" },
+              5: { type: "twoprompt-both",   tileId: "gratint"    },
+              10: { type: "checkin-any",     tileId: "checkin1"   }
+            }
+          } },
           { id: "donts",      type: "textprompt", config: { title: "DON'T", accent: "#a04040", bg: "#1a0a0a", border: "#3a1515", placeholder: "Things to avoid today..." } },
           { id: "priorities", type: "priorities", config: { title: "My Top Priorities", count: 3 } },
           { id: "proj1",      type: "project",    config: { title: "Project 1", count: 5, defaultOpen: false } },
@@ -150,9 +169,10 @@ function buildDefaultLayout() {
           { id: "checkin1", type: "checkin",   config: { title: "8:30",  color: "#8B4513" } },
           { id: "checkin2", type: "checkin",   config: { title: "11:00", color: "#B8860B" } },
           { id: "checkin3", type: "checkin",   config: { title: "2:00",  color: "#1a4a7a" } },
-          { id: "pmcheck",  type: "checklist", config: { title: "PM Checklist", accent: "#4a7a6a", items: ["Charge Something","Clean Office / Desk","Goals for Tomorrow"] } },
+          { id: "pmcheck",  type: "checklist", config: { title: "PM Routine", accent: "#4a7a6a", items: ["Inbox zero or triaged","Desk / office cleared","Charge all devices","Tomorrow's top 3 set","Dinner planned or done","Log food for the day","Grateful moment — one thing","Wind down — no screens 30min"] } },
           { id: "twocol1",  type: "twolists",  config: { titleA: "Tomorrow I'll", titleB: "Remind Myself To", countA: 5, countB: 5 } },
-          { id: "twocol2",  type: "twolists",  config: { titleA: "Food Log", titleB: "Someday Maybe", countA: 4, countB: 4 } },
+          { id: "foodlog",  type: "foodlog",   config: { title: "Food Log", meals: ["Breakfast","Lunch","Dinner","Snack"] } },
+          { id: "twocol2",  type: "twolists",  config: { titleA: "Notes / Misc", titleB: "Someday Maybe", countA: 4, countB: 4 } },
           { id: "calendar", type: "freelist",  config: { title: "Today's Calendar", count: 8, placeholder: "Event / time..." } },
         ]
       },
@@ -189,6 +209,7 @@ const TILE_TYPES = {
   numbers:    { label: "Daily Numbers",  icon: "▲" },
   counter:    { label: "Counter",        icon: "+" },
   notes:      { label: "Notes",          icon: "✎" },
+  foodlog:    { label: "Food Log",       icon: "⬡" },
 };
 
 function defaultConfig(type) {
@@ -205,12 +226,56 @@ function defaultConfig(type) {
     pushups:    { title: "Pushup Tracker" },
     numbers:    { title: "Daily Numbers" },
     notes:      { title: "Notes" },
+    foodlog:    { title: "Food Log", meals: ["Breakfast","Lunch","Dinner","Snack"] },
     counter:    { title: "Counter", target: 10 },
   };
   return map[type] || { title: type };
 }
 
 // ─── SHARED UI PRIMITIVES ─────────────────────────────────────────────────────
+// ─── AUTO-RULE ENGINE ────────────────────────────────────────────────────────
+// Evaluates whether a checklist item should be auto-completed
+// based on the state of another tile. Extensible — add new rule types here.
+
+function evaluateRule(rule, allDayData) {
+  if (!rule || !allDayData) return false;
+  const td = allDayData[rule.tileId];
+  if (!td) return false;
+
+  switch(rule.type) {
+    case "twoprompt-both":
+      return !!(td.textA?.trim() && td.textB?.trim());
+    case "twoprompt-either":
+      return !!(td.textA?.trim() || td.textB?.trim());
+    case "priorities-any":
+      return (td.priorities||[]).some(p=>p.text?.trim());
+    case "priorities-frog":
+      return !!(td.priorities?.[0]?.text?.trim());
+    case "priorities-frog-done":
+      return !!(td.priorities?.[0]?.text?.trim() && td.priorities?.[0]?.done);
+    case "checkin-any":
+      return !!(td.planks||td.food||td.priorities||td.feeling?.trim());
+    case "checkin-done":
+      return !!(td.planks&&td.food&&td.priorities);
+    case "foodlog-any":
+      return (td.logs||[]).some(l=>l.done);
+    case "foodlog-all":
+      return (td.logs||[]).length > 0 && (td.logs||[]).every(l=>l.done);
+    case "checklist-all": {
+      const items = td.checks||[];
+      return items.length > 0 && items.every(Boolean);
+    }
+    case "checklist-any":
+      return (td.checks||[]).some(Boolean);
+    case "freelist-any":
+      return (td.items||[]).some(x=>x?.trim());
+    case "textprompt-any":
+      return !!(td.text?.trim());
+    default:
+      return false;
+  }
+}
+
 
 function AutoTA({ value, onChange, placeholder, style = {} }) {
   const ref = useCallback(el => {
@@ -276,14 +341,58 @@ function CardShell({ title, accent="#c8a96e", bg, border, children, editMode, on
 
 // ─── TILE RENDERERS ───────────────────────────────────────────────────────────
 
-function TileChecklist({ config, data={}, onChange, editMode, onRemove, onConfig }) {
-  const checks = data.checks || config.items.map(()=>false);
+function TileChecklist({ config, data={}, onChange, editMode, onRemove, onConfig, allDayData }) {
+  const manualChecks = data.checks || config.items.map(()=>false);
+
+  // Evaluate auto-rules for each item
+  const autoChecks = config.items.map((item, i) => {
+    const rule = config.rules?.[i];
+    return rule ? evaluateRule(rule, allDayData||{}) : false;
+  });
+
+  // Effective state: auto OR manual
+  const effectiveChecks = config.items.map((_, i) => autoChecks[i] || manualChecks[i]);
+  const autoCount = autoChecks.filter(Boolean).length;
+  const doneCount = effectiveChecks.filter(Boolean).length;
+  const total = config.items.length;
+
   return React.createElement(CardShell, { title:config.title, accent:config.accent, bg:config.bg, border:config.border, editMode, onRemove, onConfig },
+    autoCount > 0 && React.createElement("div", {
+      style:{display:"flex",alignItems:"center",gap:"5px",marginBottom:"8px",
+        padding:"4px 7px",background:"#1a1500",border:"1px solid #2a2500",borderRadius:"3px"}
+    },
+      React.createElement("span", { style:{fontSize:"10px"} }, "⚡"),
+      React.createElement("span", { style:{fontSize:"9px",color:"#8a7040",letterSpacing:"0.5px"} },
+        `${autoCount} auto-completed · ${doneCount}/${total} done`)
+    ),
     React.createElement("div", { style:{display:"flex",flexDirection:"column",gap:"2px"} },
-      config.items.map((item,i) =>
-        React.createElement(CB, { key:i, checked:!!checks[i], label:item, strike:true,
-          onChange: v => { const n=[...checks]; n[i]=v; onChange({...data,checks:n}); } })
-      )
+      config.items.map((item, i) => {
+        const isAuto = autoChecks[i];
+        const isManual = manualChecks[i];
+        const isChecked = isAuto || isManual;
+        return React.createElement("label", { key:i,
+          style:{display:"flex",alignItems:"flex-start",gap:"7px",cursor:"pointer",
+            padding:"3px 0",color:isChecked?"#555":"#bbb",fontSize:"12px",lineHeight:1.5,
+            opacity: isAuto && !isManual ? 0.8 : 1}
+        },
+          React.createElement("div", { style:{position:"relative",flexShrink:0,marginTop:"3px"} },
+            React.createElement("input", { type:"checkbox",
+              checked: isChecked,
+              disabled: isAuto && !isManual,
+              onChange: e => {
+                const n=[...manualChecks]; n[i]=e.target.checked; onChange({...data,checks:n});
+              },
+              style:{accentColor:isAuto?"#8a7040":"#c8a96e",width:"13px",height:"13px",cursor:isAuto?"default":"pointer"}
+            }),
+            isAuto && React.createElement("span", {
+              style:{position:"absolute",top:"-1px",right:"-8px",fontSize:"8px",color:"#8a7040",pointerEvents:"none",lineHeight:1}
+            }, "⚡")
+          ),
+          React.createElement("span", {
+            style: isChecked ? {textDecoration:"line-through",color:"#555"} : {}
+          }, item)
+        );
+      })
     )
   );
 }
@@ -406,10 +515,16 @@ function TileTwoPrompt({ config, data={}, onChange, editMode, onRemove, onConfig
   );
 }
 
-function TileCheckIn({ config, data={}, onChange, editMode, onRemove }) {
+function TileCheckIn({ config, data={}, onChange, editMode, onRemove, allDayData }) {
   const c = config.color||"#555";
   const items = data.items || ["","","","",""];
   const isDone = data.planks||data.food||data.priorities||data.feeling?.trim();
+
+  // Find frog from priorities tile
+  const priData = Object.values(allDayData||{}).find(t=>t?._type==="priorities");
+  const frog = (priData?.priorities||[]).find(p=>p.text && !p.done);
+  const frogDone = (priData?.priorities||[]).length > 0 && !(priData?.priorities||[]).find(p=>p.text && !p.done);
+
   return React.createElement("div", {
     style:{border:`1px solid #2a2a2a`,borderLeft:`3px solid ${c}`,borderRadius:"6px",overflow:"hidden",position:"relative"}
   },
@@ -423,6 +538,19 @@ function TileCheckIn({ config, data={}, onChange, editMode, onRemove }) {
     },
       React.createElement("span", null, `${config.title} Check-In`),
       isDone && React.createElement("span", { style:{fontSize:"13px"} }, "✓")
+    ),
+    frog && React.createElement("div", {
+      style:{padding:"7px 10px",background:"#1a1200",borderBottom:"1px solid #2a2000",
+        display:"flex",alignItems:"center",gap:"7px"}
+    },
+      React.createElement("span", { style:{fontSize:"11px",flexShrink:0} }, "☞"),
+      React.createElement("span", { style:{fontSize:"11px",color:"#c8a96e",fontStyle:"italic",lineHeight:1.4} }, frog.text),
+    ),
+    frogDone && React.createElement("div", {
+      style:{padding:"6px 10px",background:"#0a1a0a",borderBottom:"1px solid #1a3a1a",
+        display:"flex",alignItems:"center",gap:"6px"}
+    },
+      React.createElement("span", { style:{fontSize:"10px",color:"#4a7a4a"} }, "✓ Frog done")
     ),
     React.createElement("div", { style:{padding:"10px",background:"#161616",display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"} },
       React.createElement("div", null,
@@ -495,9 +623,14 @@ function TileNumbers({ config, data={}, editMode, onRemove, onConfig, allDayData
   const puData = Object.values(d).find(t=>t?._type==="pushups");
   const pushupsTotal = Object.values(puData?.pushups||{}).filter(Boolean).length*5;
 
+  const foodData = Object.values(d).find(t=>t?._type==="foodlog");
+  const foodDone = (foodData?.logs||[]).filter(l=>l?.done).length;
+  const foodTotal = (foodData?.logs||[]).length||4;
+
   const stats = [
     { label:"Priorities Done", val:priDone, target:priTotal||3, color:"#c8a96e" },
     { label:"Check-ins Done", val:checkinsDone, target:Math.max(checkins.length,1), color:"#8B8B4B" },
+    { label:"Meals Logged", val:foodDone, target:foodTotal, color:"#c8670a" },
     { label:"Pushups Logged", val:pushupsTotal, target:150, color:"#4a7a7a" },
   ];
 
@@ -513,6 +646,49 @@ function TileNumbers({ config, data={}, editMode, onRemove, onConfig, allDayData
         ),
         React.createElement("div", { style:{background:"#1a1a00",borderRadius:"2px",height:"3px",overflow:"hidden"} },
           React.createElement("div", { style:{background:color,height:"100%",width:`${Math.min(100,(val/target)*100)}%`,transition:"width 0.4s"} })
+        )
+      )
+    )
+  );
+}
+
+function TileFoodLog({ config, data={}, onChange, editMode, onRemove, onConfig }) {
+  const meals = config.meals || ["Breakfast","Lunch","Dinner","Snack"];
+  const logs = data.logs || meals.map(()=>({ text:"", done:false }));
+  const doneCount = logs.filter(l=>l.done).length;
+  const allDone = doneCount === meals.length;
+
+  return React.createElement(CardShell, {
+    title: config.title||"Food Log",
+    accent: allDone ? "#4a7a4a" : "#c8670a",
+    style: allDone ? {background:"#0a1a0a",borderColor:"#1a3a1a"} : {background:"#1a0e00",borderColor:"#2a1e00"},
+    editMode, onRemove, onConfig
+  },
+    React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"8px"} },
+      React.createElement("div", { style:{fontSize:"9px",color:allDone?"#4a7a4a":"#7a5020",letterSpacing:"1px",textTransform:"uppercase"} },
+        allDone ? "All meals logged ✓" : `${doneCount}/${meals.length} logged`
+      ),
+      React.createElement("div", { style:{display:"flex",gap:"3px"} },
+        meals.map((_,i) => React.createElement("div", { key:i,
+          style:{width:"8px",height:"8px",borderRadius:"50%",
+            background:logs[i]?.done ? "#4a7a4a" : "#2a2a2a",
+            border:`1px solid ${logs[i]?.done ? "#4a7a4a" : "#333"}`}
+        }))
+      )
+    ),
+    meals.map((meal, i) =>
+      React.createElement("div", { key:i, style:{display:"flex",alignItems:"flex-start",gap:"7px",marginBottom:"6px"} },
+        React.createElement("input", { type:"checkbox", checked:!!logs[i]?.done,
+          onChange: e => { const n=[...logs]; n[i]={...n[i],done:e.target.checked}; onChange({...data,logs:n}); },
+          style:{marginTop:"4px",flexShrink:0,accentColor:"#c8670a",width:"13px",height:"13px"} }),
+        React.createElement("div", { style:{flex:1} },
+          React.createElement("div", { style:{fontSize:"9px",color:logs[i]?.done?"#4a7a4a":"#666",letterSpacing:"0.5px",marginBottom:"2px"} }, meal),
+          React.createElement(AutoTA, {
+            value: logs[i]?.text||"",
+            placeholder: `What did you eat?`,
+            onChange: v => { const n=[...logs]; n[i]={...n[i],text:v}; onChange({...data,logs:n}); },
+            style: logs[i]?.done ? {color:"#555",textDecoration:"line-through"} : {}
+          })
         )
       )
     )
@@ -551,7 +727,7 @@ function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDay
   const wrapped = d => onChange({ ...d, _type: tile.type });
   const props = { config:tile.config, data, onChange:wrapped, editMode, onRemove, onConfig, allDayData };
   switch(tile.type) {
-    case "checklist":  return React.createElement(TileChecklist, props);
+    case "checklist":  return React.createElement(TileChecklist, {...props, allDayData});
     case "textprompt": return React.createElement(TileTextPrompt, props);
     case "priorities": return React.createElement(TilePriorities, props);
     case "project":    return React.createElement(TileProject, props);
@@ -563,6 +739,7 @@ function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDay
     case "planks":     return React.createElement(TilePlanks, props);
     case "numbers":    return React.createElement(TileNumbers, props);
     case "notes":      return React.createElement(TileNotes, props);
+    case "foodlog":    return React.createElement(TileFoodLog, props);
     case "counter":    return React.createElement(TileCounter, props);
     default: return React.createElement("div", { style:{color:"#555",padding:"12px",fontSize:"11px"} }, `Unknown: ${tile.type}`);
   }
