@@ -327,6 +327,93 @@ function iconBtnStyle(bg="var(--bg-hover)") {
     borderRadius:"3px", cursor:"pointer", fontSize:"11px", lineHeight:"22px", textAlign:"center", padding:0 };
 }
 
+// ─── EMOJI PICKER ─────────────────────────────────────────────────────────────
+// Used by TileCheckIn "How I'm feeling" field (#28)
+
+const FEELING_EMOJIS = [
+  "😊","😄","🙂","😐","😔","😩","😤","😰","🤒","😴",
+  "🔥","⚡","💪","🧘","🌊","🎯","🌟","✨","🙏","❤️",
+  "😅","🤔","😮","😬","🥳","😎","🤩","😶","🫠","🥱",
+];
+
+function EmojiPicker({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const select = emoji => {
+    onChange(emoji);
+    setOpen(false);
+  };
+
+  return React.createElement("div", { ref, style:{position:"relative"} },
+    // Trigger button — shows current emoji or placeholder
+    React.createElement("button", {
+      onClick: () => setOpen(o => !o),
+      title: "Pick a feeling",
+      style:{
+        background: open ? "var(--accent-dim)" : "var(--bg-hover)",
+        border: `1px solid ${open ? "var(--accent)" : "var(--input-border)"}`,
+        borderRadius:"5px", cursor:"pointer",
+        fontSize: value ? "20px" : "13px",
+        width:"100%", padding: value ? "4px 8px" : "4px 8px",
+        color: value ? "inherit" : "var(--text-faint)",
+        textAlign:"left", lineHeight:1.4,
+        fontFamily:"'DM Mono',monospace",
+        display:"flex", alignItems:"center", gap:"6px",
+        transition:"all 0.15s"
+      }
+    },
+      React.createElement("span", null, value || "＋"),
+      !value && React.createElement("span", { style:{fontSize:"10px",letterSpacing:"0.5px"} }, "how are you feeling?")
+    ),
+
+    // Picker popover
+    open && React.createElement("div", {
+      style:{
+        position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:200,
+        background:"var(--bg-hover)", border:"1px solid var(--border)",
+        borderRadius:"8px", padding:"8px", boxShadow:"0 4px 20px #0008",
+        display:"grid", gridTemplateColumns:"repeat(10, 1fr)", gap:"2px",
+        width:"240px"
+      }
+    },
+      FEELING_EMOJIS.map(emoji =>
+        React.createElement("button", {
+          key: emoji,
+          onClick: () => select(emoji),
+          title: emoji,
+          style:{
+            background: value === emoji ? "var(--accent-dim)" : "transparent",
+            border: `1px solid ${value === emoji ? "var(--accent)" : "transparent"}`,
+            borderRadius:"5px", cursor:"pointer", fontSize:"16px",
+            padding:"4px", lineHeight:1, textAlign:"center",
+            transition:"background 0.1s"
+          }
+        }, emoji)
+      ),
+      // Clear button if value set
+      value && React.createElement("button", {
+        onClick: () => { onChange(""); setOpen(false); },
+        style:{
+          gridColumn:"span 10", marginTop:"4px",
+          background:"transparent", border:"1px solid var(--border-dim)",
+          borderRadius:"4px", cursor:"pointer",
+          color:"var(--text-faint)", fontSize:"9px", letterSpacing:"1px",
+          padding:"4px", fontFamily:"'DM Mono',monospace", textTransform:"uppercase"
+        }
+      }, "✕ clear")
+    )
+  );
+}
+
 function CardShell({ title, accent="#c8a96e", bg, border, children, editMode, onRemove, onConfig, style={} }) {
   // Ignore hardcoded dark hex values from old saved configs — use CSS vars instead
   const safeBg = (!bg || bg.startsWith('#')) ? undefined : bg;
@@ -569,8 +656,8 @@ function TileCheckIn({ config, data={}, onChange, editMode, onRemove, allDayData
         React.createElement(CB, { checked:!!data.food, onChange:v=>onChange({...data,food:v}), label:"Food Logged" }),
         React.createElement(CB, { checked:!!data.priorities, onChange:v=>onChange({...data,priorities:v}), label:"Next Priorities" }),
         React.createElement("div", { style:{marginTop:"8px"} },
-          React.createElement("div", { style:{fontSize:"9px",color:"var(--text-muted)",marginBottom:"3px",letterSpacing:"1px",textTransform:"uppercase"} }, "How I'm feeling"),
-          React.createElement(AutoTA, { value:data.feeling||"", placeholder:"...", onChange:v=>onChange({...data,feeling:v}) })
+          React.createElement("div", { style:{fontSize:"9px",color:"var(--text-muted)",marginBottom:"5px",letterSpacing:"1px",textTransform:"uppercase"} }, "How I'm feeling"),
+          React.createElement(EmojiPicker, { value:data.feeling||"", onChange:v=>onChange({...data,feeling:v}) })
         )
       ),
       React.createElement("div", null,
@@ -1110,8 +1197,9 @@ function ConfigModal({ tile, onSave, onClose }) {
           label,
           React.createElement("div", { style:{fontSize:"9px",color:"var(--text-faint)",marginBottom:"3px"} }, "one item per line"),
           React.createElement("textarea", { value:v.join("\n"), rows:Math.max(3,v.length+1),
-            onChange:e=>setCfg({...cfg,[k]:e.target.value.split("\n")}),
-            style:{...inputStyle,resize:"vertical"} }));
+            onChange: e => { setCfg({...cfg,[k]:e.target.value.split("\n")}); e.target.style.height="auto"; e.target.style.height=e.target.scrollHeight+"px"; },
+            onFocus: e => { e.target.style.height="auto"; e.target.style.height=e.target.scrollHeight+"px"; },
+            style:{...inputStyle,resize:"none",overflow:"hidden"} }));
         return null;
       }),
       React.createElement("div", { style:{display:"flex",gap:"8px",marginTop:"16px"} },
@@ -1456,7 +1544,7 @@ function App() {
       *{box-sizing:border-box;margin:0;padding:0;}
       input,textarea,button{font-family:inherit;}
       input:focus,textarea:focus{outline:none;}
-      textarea{display:block;}
+      textarea{display:block;overflow:hidden;resize:none;field-sizing:content;}
       ::-webkit-scrollbar{width:4px;height:4px;}
       ::-webkit-scrollbar-track{background:var(--scrollbar-track);}
       ::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb);border-radius:2px;}
