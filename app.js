@@ -137,7 +137,35 @@ function todayRangeISO() {
   return { timeMin: start.toISOString(), timeMax: end.toISOString() };
 }
 
-async function fetchTodayEvents() {
+// #41 — secondary calendar support: per-session cache of the user's calendar list
+let _calendarListCache = null;
+async function fetchCalendarList() {
+  if (_calendarListCache) return _calendarListCache;
+  const token = getToken();
+  if (!token) { const e = new Error("Not authenticated"); e.code = "NO_AUTH"; throw e; }
+  const url = `https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=reader&fields=items(id,summary,summaryOverride,backgroundColor,foregroundColor,primary,selected)`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (res.status === 401 || res.status === 403) {
+    const e = new Error(`Calendar auth error ${res.status}`); e.code = "REAUTH"; throw e;
+  }
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Calendar list error ${res.status}: ${txt}`);
+  }
+  const json = await res.json();
+  _calendarListCache = (json.items || []).map(c => ({
+    id: c.id,
+    name: c.summaryOverride || c.summary || c.id,
+    backgroundColor: c.backgroundColor || "#5a7aa0",
+    primary: !!c.primary,
+  }));
+  // Sort: primary first, then alphabetical
+  _calendarListCache.sort((a,b) => (b.primary?1:0) - (a.primary?1:0) || a.name.localeCompare(b.name));
+  return _calendarListCache;
+}
+function clearCalendarListCache() { _calendarListCache = null; }
+
+async function fetchTodayEvents(calendarId = "primary") {
   const token = getToken();
   if (!token) { const e = new Error("Not authenticated"); e.code = "NO_AUTH"; throw e; }
   const { timeMin, timeMax } = todayRangeISO();
@@ -147,7 +175,7 @@ async function fetchTodayEvents() {
     orderBy: "startTime",
     maxResults: "50",
   });
-  const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`;
+  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?${params}`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (res.status === 401 || res.status === 403) {
     const e = new Error(`Calendar auth error ${res.status}`); e.code = "REAUTH"; throw e;
@@ -225,7 +253,7 @@ function buildDefaultLayout() {
           { id: "quote",    type: "quote",     config: { title: "Today's Inspiration" } },
           { id: "gratint",  type: "twoprompt", config: { titleA: "Gratitude", titleB: "Intention", placeholderA: "What are you grateful for?", placeholderB: "What do you intend to accomplish?", accent: "#c8a96e" } },
           // #38 — Inline Google Calendar widget (replaces the manual freelist calendar)
-          { id: "calendar", type: "gcal",      config: { title: "Today's Calendar", refreshMinutes: 10 } },
+          { id: "calendar", type: "gcal",      config: { title: "Today's Calendar", refreshMinutes: 10, calendarId: "primary" } },
           { id: "checkin1", type: "checkin",   config: { title: "8:30",  color: "#8B4513" } },
           { id: "checkin2", type: "checkin",   config: { title: "11:00", color: "#B8860B" } },
           { id: "checkin3", type: "checkin",   config: { title: "2:00",  color: "#1a4a7a" } },
@@ -238,7 +266,19 @@ function buildDefaultLayout() {
       {
         id: "col-right", width: 24,
         tiles: [
-          { id: "exercise", type: "checklist", config: { title: "Exercise Today", accent: "#4a7a4a", items: ["Yoga","Sober","Weights","Garage","24hr Fitness"] } },
+          { id: "exercise", type: "checklist", config: { title: "Exercise Today", accent: "#4a7a4a",
+            items: [
+              "Pushups over 75",
+              "Planks (2 of 4 sets)",
+              "Sobriety 'til 5",
+              "No drinking today",
+              "No food after 8 yesterday"
+            ],
+            rules: {
+              0: { type: "pushups-total-gte", tileId: "pushups", threshold: 75 },
+              1: { type: "planks-count-gte",  tileId: "planks",  threshold: 2 }
+            }
+          } },
           { id: "planks",   type: "planks",    config: { title: "Planks" } },
           { id: "dangles",  type: "dangles",   config: { title: "Dangles" } },
           { id: "pushups",  type: "pushups",   config: { title: "Pushup Tracker" } },
@@ -250,7 +290,7 @@ function buildDefaultLayout() {
 }
 
 function emptyStore() {
-  return { layouts: { default: buildDefaultLayout() }, activeLayout: "default", days: {}, version: 3 };
+  return { layouts: { default: buildDefaultLayout() }, activeLayout: "default", days: {}, version: 4 };
 }
 
 // One-shot, idempotent layout migrations for existing users.
@@ -292,13 +332,49 @@ function migrateLayout(store) {
         col.tiles[calIdx] = {
           id: "calendar",
           type: "gcal",
-          config: { title: "Today's Calendar", refreshMinutes: 10 }
+          config: { title: "Today's Calendar", refreshMinutes: 10, calendarId: "primary" }
         };
         changed = true;
       }
     }
+
+    // #41 — backfill calendarId on any gcal tile missing it (covers the pre-#41 single-calendar shape)
+    for (const col of cols) {
+      for (const tile of col.tiles||[]) {
+        if (tile.type === "gcal" && !tile.config?.calendarId) {
+          tile.config = { ...tile.config, calendarId: "primary" };
+          changed = true;
+        }
+      }
+    }
+
+    // #30 — rewrite the legacy Exercise Today tile (venues/states list) to the new habit list + auto-rules.
+    // Guarded on the legacy signal "24hr Fitness" so the migration is idempotent.
+    for (const col of cols) {
+      for (const tile of col.tiles||[]) {
+        if (tile.id === "exercise" && tile.type === "checklist"
+            && Array.isArray(tile.config?.items)
+            && tile.config.items.includes("24hr Fitness")) {
+          tile.config = {
+            ...tile.config,
+            items: [
+              "Pushups over 75",
+              "Planks (2 of 4 sets)",
+              "Sobriety 'til 5",
+              "No drinking today",
+              "No food after 8 yesterday"
+            ],
+            rules: {
+              0: { type: "pushups-total-gte", tileId: "pushups", threshold: 75 },
+              1: { type: "planks-count-gte",  tileId: "planks",  threshold: 2 }
+            }
+          };
+          changed = true;
+        }
+      }
+    }
   }
-  if (changed) store.version = 3;
+  if (changed) store.version = 4;
   return store;
 }
 
@@ -342,7 +418,7 @@ function defaultConfig(type) {
     dangles:    { title: "Dangles" },
     quote:      { title: "Today's Inspiration" },
     counter:    { title: "Counter", target: 10 },
-    gcal:       { title: "Today's Calendar", refreshMinutes: 10 },
+    gcal:       { title: "Today's Calendar", refreshMinutes: 10, calendarId: "primary" },
   };
   return map[type] || { title: type };
 }
@@ -386,6 +462,13 @@ function evaluateRule(rule, allDayData) {
       return (td.items||[]).some(x=>x?.trim());
     case "textprompt-any":
       return !!(td.text?.trim());
+    // #30 — auto-rules driven by tracker tiles
+    case "pushups-total-gte":
+      return Object.entries(td.pushups||{})
+        .filter(([,v]) => v)
+        .reduce((sum,[k]) => sum + Number(k||0), 0) >= (rule.threshold||0);
+    case "planks-count-gte":
+      return Object.values(td.planks||{}).filter(Boolean).length >= (rule.threshold||0);
     default:
       return false;
   }
@@ -560,9 +643,21 @@ function TileChecklist({ config, data={}, onChange, editMode, onRemove, onConfig
   const autoCount = autoChecks.filter(Boolean).length;
   const doneCount = effectiveChecks.filter(Boolean).length;
   const total = config.items.length;
+  // #36 — whole-section completion state
+  const allDone = total > 0 && doneCount === total;
+  const effectiveAccent = allDone ? "#4a7a4a" : config.accent;
 
-  return React.createElement(CardShell, { title:config.title, accent:config.accent, bg:config.bg, border:config.border, editMode, onRemove, onConfig },
-    autoCount > 0 && React.createElement("div", {
+  return React.createElement(CardShell, { title:config.title, accent:effectiveAccent, bg:config.bg, border:config.border, editMode, onRemove, onConfig },
+    // #36 — completion banner takes precedence over the auto-rule banner when everything's done
+    allDone && React.createElement("div", {
+      style:{display:"flex",alignItems:"center",gap:"5px",marginBottom:"8px",
+        padding:"4px 7px",background:"#0a1a0a",border:"1px solid #1a3a1a",borderRadius:"3px"}
+    },
+      React.createElement("span", { style:{fontSize:"10px",color:"#4a7a4a"} }, "✓"),
+      React.createElement("span", { style:{fontSize:"9px",color:"#4a7a4a",letterSpacing:"1px",textTransform:"uppercase"} },
+        `Complete${autoCount > 0 ? ` · ${autoCount} auto` : ""}`)
+    ),
+    !allDone && autoCount > 0 && React.createElement("div", {
       style:{display:"flex",alignItems:"center",gap:"5px",marginBottom:"8px",
         padding:"4px 7px",background:"var(--accent-dim)",border:"1px solid var(--border-dim)",borderRadius:"3px"}
     },
@@ -1229,14 +1324,17 @@ function TileGcal({ config, data={}, onChange, editMode, onRemove, onConfig, all
   const [loading, setLoading] = React.useState(false);
   const [error, setError]     = React.useState(null);
   const [expandedId, setExpandedId] = React.useState(null);
+  // #41 — accent reflects the bound calendar's native color (set after calendar list resolves)
+  const [accentColor, setAccentColor] = React.useState("#5a7aa0");
 
   const refreshMin = Number(config.refreshMinutes) || 10;
+  const calendarId = config.calendarId || "primary";
 
   const load = React.useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const list = await fetchTodayEvents();
+      const list = await fetchTodayEvents(calendarId);
       setEvents(list);
     } catch (e) {
       if (e.code === "NO_AUTH" || e.code === "REAUTH") {
@@ -1248,17 +1346,32 @@ function TileGcal({ config, data={}, onChange, editMode, onRemove, onConfig, all
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [calendarId]);
 
   React.useEffect(() => {
     if (!isAuthed) { setEvents(null); setError("NO_AUTH"); return; }
     load();
     const id = setInterval(load, refreshMin * 60 * 1000);
     return () => clearInterval(id);
-    // authEpoch bumps after every successful auth so a fresh consent re-triggers the fetch
+    // authEpoch bumps after every successful auth so a fresh consent re-triggers the fetch.
+    // calendarId is captured via `load`'s dependency so swapping calendars in tile config re-fetches.
   }, [isAuthed, authEpoch, refreshMin, load]);
 
-  const accent = "#5a7aa0";
+  // #41 — look up the bound calendar's native color from the cached calendar list
+  React.useEffect(() => {
+    if (!isAuthed) return;
+    let alive = true;
+    fetchCalendarList()
+      .then(list => {
+        if (!alive) return;
+        const match = list.find(c => c.id === calendarId) || list.find(c => c.primary);
+        if (match?.backgroundColor) setAccentColor(match.backgroundColor);
+      })
+      .catch(() => { /* swallow — accent stays at default */ });
+    return () => { alive = false; };
+  }, [isAuthed, authEpoch, calendarId]);
+
+  const accent = accentColor;
 
   let body;
   if (!isAuthed || error === "NO_AUTH") {
@@ -1401,7 +1514,19 @@ function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDay
 // ─── TILE LIBRARY PANEL ───────────────────────────────────────────────────────
 
 function TileLibrary({ onAdd, columns }) {
-  const [col, setCol] = useState(columns[0]?.id||"");
+  // #32 — default destination to the column with the fewest tiles (shortest by tile count).
+  // Ties broken by current order (i.e. leftmost shortest wins).
+  const shortestColId = React.useMemo(() => {
+    if (!columns?.length) return "";
+    let best = columns[0];
+    for (const c of columns) {
+      if ((c.tiles?.length||0) < (best.tiles?.length||0)) best = c;
+    }
+    return best.id;
+  }, [columns]);
+  const [col, setCol] = useState(shortestColId);
+  // Re-pick the shortest column whenever columns rebalance (e.g. after adding/removing/moving tiles)
+  React.useEffect(() => { setCol(shortestColId); }, [shortestColId]);
   return React.createElement("div", { style:{background:"var(--bg-hover)",border:"1px solid var(--border)",borderRadius:"6px",padding:"14px",marginBottom:"14px"} },
     React.createElement("div", { style:{display:"flex",alignItems:"center",gap:"10px",marginBottom:"10px",flexWrap:"wrap"} },
       React.createElement("span", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-muted)"} }, "Add to column:"),
@@ -1429,6 +1554,16 @@ function TileLibrary({ onAdd, columns }) {
 
 function ConfigModal({ tile, onSave, onClose }) {
   const [cfg, setCfg] = useState({...tile.config});
+  // #41 — when configuring a gcal tile, pull the user's calendar list so calendarId can render as a dropdown.
+  const [calendarList, setCalendarList] = useState(null);
+  React.useEffect(() => {
+    if (tile.type !== "gcal") return;
+    let alive = true;
+    fetchCalendarList()
+      .then(list => { if (alive) setCalendarList(list); })
+      .catch(() => { if (alive) setCalendarList([]); });
+    return () => { alive = false; };
+  }, [tile.type]);
   return React.createElement("div", {
     style:{position:"fixed",inset:0,background:"#000b",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}
   },
@@ -1440,6 +1575,28 @@ function ConfigModal({ tile, onSave, onClose }) {
         if (k.startsWith("_")) return null;
         const label = React.createElement("div", { style:{fontSize:"9px",color:"var(--text-muted)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"} }, k);
         const inputStyle = {width:"100%",background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"3px",color:"var(--text)",fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"6px 8px"};
+        // #41 — special-case the gcal calendarId field as a dropdown of the user's calendars
+        if (k === "calendarId" && tile.type === "gcal") {
+          if (calendarList === null) return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
+            label,
+            React.createElement("div", { style:{fontSize:"10px",color:"var(--text-faint)",padding:"6px 0"} }, "Loading calendars…"));
+          if (calendarList.length === 0) return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
+            label,
+            React.createElement("input", { value:v, onChange:e=>setCfg({...cfg,[k]:e.target.value}), style:inputStyle }),
+            React.createElement("div", { style:{fontSize:"9px",color:"var(--text-faint)",marginTop:"3px"} }, "Couldn't load calendar list — enter ID manually."));
+          return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
+            label,
+            React.createElement("select", {
+              value: v,
+              onChange: e => setCfg({...cfg, [k]: e.target.value}),
+              style: inputStyle
+            },
+              calendarList.map(c => React.createElement("option", { key:c.id, value:c.id },
+                `${c.name}${c.primary ? " (primary)" : ""}`
+              ))
+            )
+          );
+        }
         if (typeof v === "string") return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
           label, React.createElement("input", { value:v, onChange:e=>setCfg({...cfg,[k]:e.target.value}), style:inputStyle }));
         if (typeof v === "number") return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
