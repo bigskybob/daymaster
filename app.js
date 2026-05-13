@@ -12,7 +12,9 @@ const APP_URL = CFG.APP_URL || window.location.origin;
 const DRIVE_FOLDER = CFG.DRIVE_FOLDER || "Daymaster";
 const LOCAL_KEY = "daymaster-v2-local";
 const THEME_KEY  = "daymaster-theme";
-const SCOPES = "https://www.googleapis.com/auth/drive.file";
+// #38 — added calendar.readonly for inline Google Calendar widget.
+// First load after this change will trigger a re-consent prompt because the scope set widened.
+const SCOPES = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/calendar.readonly";
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
@@ -126,7 +128,59 @@ async function saveToDrive(store) {
   }
 }
 
-// ─── DEFAULT LAYOUT ───────────────────────────────────────────────────────────
+// ─── GOOGLE CALENDAR LAYER (#38) ──────────────────────────────────────────────
+// Read-only fetch of today's events from the user's primary calendar.
+
+function todayRangeISO() {
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const end = new Date();   end.setHours(23, 59, 59, 999);
+  return { timeMin: start.toISOString(), timeMax: end.toISOString() };
+}
+
+async function fetchTodayEvents() {
+  const token = getToken();
+  if (!token) { const e = new Error("Not authenticated"); e.code = "NO_AUTH"; throw e; }
+  const { timeMin, timeMax } = todayRangeISO();
+  const params = new URLSearchParams({
+    timeMin, timeMax,
+    singleEvents: "true",
+    orderBy: "startTime",
+    maxResults: "50",
+  });
+  const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (res.status === 401 || res.status === 403) {
+    const e = new Error(`Calendar auth error ${res.status}`); e.code = "REAUTH"; throw e;
+  }
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Calendar error ${res.status}: ${txt}`);
+  }
+  const json = await res.json();
+  return (json.items || []).map(ev => ({
+    id: ev.id,
+    title: ev.summary || "(no title)",
+    location: ev.location || "",
+    description: ev.description || "",
+    start: ev.start?.dateTime || ev.start?.date || null,
+    end: ev.end?.dateTime || ev.end?.date || null,
+    allDay: !!ev.start?.date && !ev.start?.dateTime,
+    htmlLink: ev.htmlLink || "",
+  }));
+}
+
+function fmtEventTime(iso, allDay) {
+  if (!iso) return "";
+  if (allDay) return "all day";
+  const d = new Date(iso);
+  let h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  return m === 0 ? `${h} ${ampm}` : `${h}:${String(m).padStart(2,"0")} ${ampm}`;
+}
+
+
 
 function buildDefaultLayout() {
   return {
@@ -135,7 +189,20 @@ function buildDefaultLayout() {
       {
         id: "col-left", width: 22,
         tiles: [
-          { id: "morning", type: "checklist", config: { title: "AM Routine", accent: "#c8a96e",
+          { id: "donts",      type: "textprompt", config: { title: "DON'T", accent: "#a04040", placeholder: "Things to avoid today..." } },
+          { id: "priorities", type: "priorities", config: { title: "My Top Priorities", count: 3 } },
+          { id: "proj1",      type: "project",    config: { title: "Project 1", count: 5, defaultOpen: false } },
+          { id: "proj2",      type: "project",    config: { title: "Project 2", count: 4, defaultOpen: false } },
+          { id: "proj3",      type: "project",    config: { title: "Project 3", count: 4, defaultOpen: false } },
+          { id: "delayed",    type: "freelist",   config: { title: "Delayed Google / Amazon", count: 6, placeholder: "Search later..." } },
+        ]
+      },
+      {
+        id: "col-center", width: 44,
+        tiles: [
+          // #39 — Mise-en-place pinned to top. On mobile, col-center renders first,
+          // so this is the first thing the user sees. Automation rules from #19 preserved.
+          { id: "morning", type: "checklist", config: { title: "Mise-en-place", accent: "#c8a96e",
             items: [
               "Hydrate — water first",
               "Supplements / meds",
@@ -155,19 +222,10 @@ function buildDefaultLayout() {
               10: { type: "checkin-any",     tileId: "checkin1"   }
             }
           } },
-          { id: "donts",      type: "textprompt", config: { title: "DON'T", accent: "#a04040", placeholder: "Things to avoid today..." } },
-          { id: "priorities", type: "priorities", config: { title: "My Top Priorities", count: 3 } },
-          { id: "proj1",      type: "project",    config: { title: "Project 1", count: 5, defaultOpen: false } },
-          { id: "proj2",      type: "project",    config: { title: "Project 2", count: 4, defaultOpen: false } },
-          { id: "proj3",      type: "project",    config: { title: "Project 3", count: 4, defaultOpen: false } },
-          { id: "delayed",    type: "freelist",   config: { title: "Delayed Google / Amazon", count: 6, placeholder: "Search later..." } },
-        ]
-      },
-      {
-        id: "col-center", width: 44,
-        tiles: [
           { id: "quote",    type: "quote",     config: { title: "Today's Inspiration" } },
           { id: "gratint",  type: "twoprompt", config: { titleA: "Gratitude", titleB: "Intention", placeholderA: "What are you grateful for?", placeholderB: "What do you intend to accomplish?", accent: "#c8a96e" } },
+          // #38 — Inline Google Calendar widget (replaces the manual freelist calendar)
+          { id: "calendar", type: "gcal",      config: { title: "Today's Calendar", refreshMinutes: 10 } },
           { id: "checkin1", type: "checkin",   config: { title: "8:30",  color: "#8B4513" } },
           { id: "checkin2", type: "checkin",   config: { title: "11:00", color: "#B8860B" } },
           { id: "checkin3", type: "checkin",   config: { title: "2:00",  color: "#1a4a7a" } },
@@ -175,7 +233,6 @@ function buildDefaultLayout() {
           { id: "twocol1",  type: "twolists",  config: { titleA: "Tomorrow I'll", titleB: "Remind Myself To", countA: 5, countB: 5 } },
           { id: "foodlog",  type: "foodlog",   config: { title: "Food Log", meals: ["Breakfast","Lunch","Dinner","Snack"] } },
           { id: "twocol2",  type: "twolists",  config: { titleA: "Notes / Misc", titleB: "Someday Maybe", countA: 4, countB: 4 } },
-          { id: "calendar", type: "freelist",  config: { title: "Today's Calendar", count: 8, placeholder: "Event / time..." } },
         ]
       },
       {
@@ -193,7 +250,56 @@ function buildDefaultLayout() {
 }
 
 function emptyStore() {
-  return { layouts: { default: buildDefaultLayout() }, activeLayout: "default", days: {}, version: 2 };
+  return { layouts: { default: buildDefaultLayout() }, activeLayout: "default", days: {}, version: 3 };
+}
+
+// One-shot, idempotent layout migrations for existing users.
+// Safe to run on every load — only mutates when the old shape is present.
+function migrateLayout(store) {
+  if (!store?.layouts) return store;
+  let changed = false;
+  for (const key of Object.keys(store.layouts)) {
+    const layout = store.layouts[key];
+    if (!layout?.columns) continue;
+    const cols = layout.columns;
+    const centerIdx = cols.findIndex(c => c.id === "col-center");
+    if (centerIdx < 0) continue;
+
+    // #39 — ensure the "morning" (Mise-en-place) tile is first in col-center
+    let morningTile = null;
+    let morningCol  = -1;
+    let morningPos  = -1;
+    for (let ci = 0; ci < cols.length; ci++) {
+      const t = cols[ci].tiles?.find(t => t.id === "morning");
+      if (t) { morningTile = t; morningCol = ci; morningPos = cols[ci].tiles.indexOf(t); break; }
+    }
+    if (morningTile && !(morningCol === centerIdx && morningPos === 0)) {
+      cols[morningCol].tiles = cols[morningCol].tiles.filter(t => t.id !== "morning");
+      cols[centerIdx].tiles = [morningTile, ...cols[centerIdx].tiles];
+      changed = true;
+    }
+    // Optional rename: if it's still the default "AM Routine", surface the new name
+    const mt = cols[centerIdx].tiles.find(t => t.id === "morning");
+    if (mt && mt.config?.title === "AM Routine") {
+      mt.config = { ...mt.config, title: "Mise-en-place" };
+      changed = true;
+    }
+
+    // #38 — convert the manual freelist "calendar" tile to the new gcal tile type
+    for (const col of cols) {
+      const calIdx = col.tiles?.findIndex(t => t.id === "calendar" && t.type === "freelist");
+      if (calIdx >= 0) {
+        col.tiles[calIdx] = {
+          id: "calendar",
+          type: "gcal",
+          config: { title: "Today's Calendar", refreshMinutes: 10 }
+        };
+        changed = true;
+      }
+    }
+  }
+  if (changed) store.version = 3;
+  return store;
 }
 
 // ─── TILE TYPES REGISTRY ──────────────────────────────────────────────────────
@@ -215,6 +321,7 @@ const TILE_TYPES = {
   foodlog:    { label: "Food Log",       icon: "⬡" },
   dangles:    { label: "Dangles",         icon: "↕" },
   quote:      { label: "Daily Quote",      icon: "✦" },
+  gcal:       { label: "Google Calendar", icon: "🗓" },
 };
 
 function defaultConfig(type) {
@@ -235,6 +342,7 @@ function defaultConfig(type) {
     dangles:    { title: "Dangles" },
     quote:      { title: "Today's Inspiration" },
     counter:    { title: "Counter", target: 10 },
+    gcal:       { title: "Today's Calendar", refreshMinutes: 10 },
   };
   return map[type] || { title: type };
 }
@@ -615,7 +723,8 @@ function TileTwoPrompt({ config, data={}, onChange, editMode, onRemove, onConfig
 function TileCheckIn({ config, data={}, onChange, editMode, onRemove, allDayData }) {
   const c = config.color||"var(--border)";
   const items = data.items || ["","","","",""];
-  const isDone = data.planks||data.food||data.priorities||data.feeling?.trim();
+  // #37 — feeling (emoji) and feelingNote (text) are paired and either may be set
+  const isDone = data.planks||data.food||data.priorities||data.feeling?.trim()||data.feelingNote?.trim();
 
   // Frog = priority #1 (index 0) only
   const priData = Object.values(allDayData||{}).find(t=>t?._type==="priorities");
@@ -657,7 +766,16 @@ function TileCheckIn({ config, data={}, onChange, editMode, onRemove, allDayData
         React.createElement(CB, { checked:!!data.priorities, onChange:v=>onChange({...data,priorities:v}), label:"Next Priorities" }),
         React.createElement("div", { style:{marginTop:"8px"} },
           React.createElement("div", { style:{fontSize:"9px",color:"var(--text-muted)",marginBottom:"5px",letterSpacing:"1px",textTransform:"uppercase"} }, "How I'm feeling"),
-          React.createElement(EmojiPicker, { value:data.feeling||"", onChange:v=>onChange({...data,feeling:v}) })
+          React.createElement(EmojiPicker, { value:data.feeling||"", onChange:v=>onChange({...data,feeling:v}) }),
+          // #37 — free-form text note paired with the emoji. Either can be empty.
+          React.createElement("div", { style:{marginTop:"6px"} },
+            React.createElement(AutoTA, {
+              value: data.feelingNote || "",
+              placeholder: "a note about how you feel…",
+              onChange: v => onChange({...data, feelingNote: v}),
+              style: { fontSize:"11px", lineHeight:1.5 }
+            })
+          )
         )
       ),
       React.createElement("div", null,
@@ -1102,6 +1220,137 @@ function TileNotes({ config, data={}, onChange, editMode, onRemove, onConfig }) 
   );
 }
 
+// ─── #38 — INLINE GOOGLE CALENDAR ────────────────────────────────────────────
+// Read-only single-day timeline of today's events from the user's primary calendar.
+// Auth is shared with the rest of the app (drive.file + calendar.readonly scopes).
+// Re-fetches on mount and on the configured interval (default 10 min).
+function TileGcal({ config, data={}, onChange, editMode, onRemove, onConfig, allDayData, isAuthed, onReauth }) {
+  const [events, setEvents]   = React.useState(null);
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError]     = React.useState(null);
+  const [expandedId, setExpandedId] = React.useState(null);
+
+  const refreshMin = Number(config.refreshMinutes) || 10;
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const list = await fetchTodayEvents();
+      setEvents(list);
+    } catch (e) {
+      if (e.code === "NO_AUTH" || e.code === "REAUTH") {
+        setError(e.code);
+      } else {
+        setError("FETCH");
+        console.error("Calendar load failed", e);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (!isAuthed) { setEvents(null); setError("NO_AUTH"); return; }
+    load();
+    const id = setInterval(load, refreshMin * 60 * 1000);
+    return () => clearInterval(id);
+  }, [isAuthed, refreshMin, load]);
+
+  const accent = "#5a7aa0";
+
+  let body;
+  if (!isAuthed || error === "NO_AUTH") {
+    body = React.createElement("div", { style:{padding:"10px 2px",color:"var(--text-faint)",fontSize:"11px",lineHeight:1.6} },
+      "Sign in with Google to see today's events.",
+      onReauth && React.createElement("div", { style:{marginTop:"8px"} },
+        React.createElement("button", { onClick:onReauth, style:{
+          background:"var(--bg-hover)", border:"1px solid var(--border)",
+          color:"var(--text-dim)", padding:"5px 10px", borderRadius:"4px",
+          cursor:"pointer", fontFamily:"'DM Mono',monospace", fontSize:"10px"
+        } }, "Connect Google Calendar")
+      )
+    );
+  } else if (error === "REAUTH") {
+    body = React.createElement("div", { style:{padding:"10px 2px",color:"#c8a020",fontSize:"11px",lineHeight:1.6} },
+      "Calendar access needs re-authorization.",
+      onReauth && React.createElement("div", { style:{marginTop:"8px"} },
+        React.createElement("button", { onClick:onReauth, style:{
+          background:"var(--bg-hover)", border:"1px solid #c8a02055",
+          color:"#c8a020", padding:"5px 10px", borderRadius:"4px",
+          cursor:"pointer", fontFamily:"'DM Mono',monospace", fontSize:"10px"
+        } }, "Re-authorize")
+      )
+    );
+  } else if (error === "FETCH") {
+    body = React.createElement("div", { style:{padding:"10px 2px",color:"#a04040",fontSize:"11px"} },
+      "Couldn't load calendar. ",
+      React.createElement("button", { onClick:load, style:{
+        background:"transparent",border:"none",color:"var(--accent)",cursor:"pointer",fontSize:"11px",
+        textDecoration:"underline",padding:0,fontFamily:"'DM Mono',monospace"
+      } }, "Retry")
+    );
+  } else if (loading && !events) {
+    body = React.createElement("div", { style:{padding:"10px 2px",color:"var(--text-faint)",fontSize:"11px",letterSpacing:"0.5px"} }, "Loading events…");
+  } else if (events && events.length === 0) {
+    body = React.createElement("div", { style:{padding:"10px 2px",color:"var(--text-faint)",fontSize:"11px",fontStyle:"italic"} }, "No events today.");
+  } else if (events) {
+    body = React.createElement("div", { style:{display:"flex",flexDirection:"column",gap:"6px",padding:"2px 0"} },
+      events.map(ev => {
+        const isOpen = expandedId === ev.id;
+        const timeLabel = ev.allDay ? "all day" : fmtEventTime(ev.start, false);
+        const endLabel = !ev.allDay && ev.end ? fmtEventTime(ev.end, false) : "";
+        return React.createElement("div", { key: ev.id,
+          onClick: () => setExpandedId(isOpen ? null : ev.id),
+          style:{
+            cursor:"pointer",
+            borderLeft:`2px solid ${accent}`,
+            background: isOpen ? "var(--bg-hover)" : "transparent",
+            padding:"6px 8px",
+            borderRadius:"3px",
+            transition:"background 0.15s"
+          }
+        },
+          React.createElement("div", { style:{display:"flex",gap:"10px",alignItems:"baseline",fontSize:"12px"} },
+            React.createElement("span", { style:{
+              color:"var(--text-muted)",
+              fontFamily:"'DM Mono',monospace",
+              fontSize:"10px",
+              minWidth:"60px",
+              flexShrink:0,
+              letterSpacing:"0.3px"
+            } }, timeLabel),
+            React.createElement("span", { style:{color:"var(--text)",lineHeight:1.4,flex:1} }, ev.title)
+          ),
+          isOpen && React.createElement("div", { style:{marginTop:"6px",paddingLeft:"70px",fontSize:"11px",color:"var(--text-dim)",lineHeight:1.5} },
+            endLabel && React.createElement("div", null, `${timeLabel} – ${endLabel}`),
+            ev.location && React.createElement("div", { style:{marginTop:"3px"} }, "📍 ", ev.location),
+            ev.description && React.createElement("div", { style:{marginTop:"4px",whiteSpace:"pre-wrap",color:"var(--text-muted)",maxHeight:"120px",overflow:"auto"} }, ev.description),
+            ev.htmlLink && React.createElement("a", { href:ev.htmlLink, target:"_blank", rel:"noopener noreferrer",
+              style:{display:"inline-block",marginTop:"6px",fontSize:"10px",color:"var(--accent)",textDecoration:"none"} }, "Open in Google Calendar →")
+          )
+        );
+      })
+    );
+  } else {
+    body = React.createElement("div", { style:{padding:"10px 2px",color:"var(--text-faint)",fontSize:"11px"} }, "—");
+  }
+
+  // Title row with subtle refresh control
+  const titleRow = React.createElement("div", { style:{display:"flex",alignItems:"center",gap:"6px"} },
+    React.createElement("span", null, config.title || "Today's Calendar"),
+    isAuthed && !error && React.createElement("button", {
+      onClick:(e)=>{e.stopPropagation(); load();},
+      title:"Refresh",
+      style:{background:"transparent",border:"none",color:"var(--text-faint)",cursor:"pointer",fontSize:"11px",padding:"0 4px",lineHeight:1}
+    }, loading ? "…" : "↻")
+  );
+
+  return React.createElement(CardShell, { title: titleRow, accent, editMode, onRemove, onConfig },
+    body
+  );
+}
+
 function TileCounter({ config, data={}, onChange, editMode, onRemove, onConfig }) {
   const val = data.count||0;
   return React.createElement(CardShell, { title:config.title||"Counter", accent:"#7a6a9a", editMode, onRemove, onConfig },
@@ -1123,7 +1372,7 @@ function TileCounter({ config, data={}, onChange, editMode, onRemove, onConfig }
 
 // ─── TILE DISPATCH ────────────────────────────────────────────────────────────
 
-function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDayData }) {
+function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDayData, isAuthed, onReauth }) {
   const wrapped = d => onChange({ ...d, _type: tile.type });
   const props = { config:tile.config, data, onChange:wrapped, editMode, onRemove, onConfig, allDayData };
   switch(tile.type) {
@@ -1143,6 +1392,7 @@ function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDay
     case "dangles":    return React.createElement(TileDangles, props);
     case "quote":      return React.createElement(TileQuote, props);
     case "counter":    return React.createElement(TileCounter, props);
+    case "gcal":       return React.createElement(TileGcal, {...props, isAuthed, onReauth});
     default: return React.createElement("div", { style:{color:"var(--text-muted)",padding:"12px",fontSize:"11px"} }, `Unknown: ${tile.type}`);
   }
 }
@@ -1266,7 +1516,13 @@ function HistoryView({ store }) {
               React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"12px",marginBottom:"4px"} },
                 [td.planks&&"Planks ✓", td.food&&"Food ✓", td.priorities&&"Priorities ✓"].filter(Boolean).join("  ·  ")
               ),
-              td.feeling && React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"11px",fontStyle:"italic"} }, `"${td.feeling}"`)
+              // #37 — emoji + paired text note side-by-side
+              (td.feeling || td.feelingNote) && React.createElement("div", {
+                style:{display:"flex",alignItems:"flex-start",gap:"8px",color:"var(--text-dim)",fontSize:"11px",fontStyle:"italic"}
+              },
+                td.feeling && React.createElement("span", { style:{fontSize:"16px",fontStyle:"normal",flexShrink:0,lineHeight:1.3} }, td.feeling),
+                td.feelingNote && React.createElement("span", { style:{lineHeight:1.5} }, `"${td.feelingNote}"`)
+              )
             ),
             ["checklist"].includes(tile.type) && React.createElement("div", null,
               tile.config.items?.map((item,i) =>
@@ -1358,6 +1614,8 @@ function App() {
   }
 
   function applyStore(s) {
+    // Run layout migrations (idempotent) for any features that reshape the default layout
+    s = migrateLayout(s);
     // Day rollover
     const today = todayKey();
     if (!s.days) s.days = {};
@@ -1684,6 +1942,8 @@ function App() {
                   onRemove: () => removeTile(col.id, tile.id),
                   onConfig: () => setConfigTile({tile, colId:col.id}),
                   allDayData: todayData,
+                  isAuthed,
+                  onReauth: initGoogleAuth,
                 })
               );
             }),
