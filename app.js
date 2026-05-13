@@ -251,12 +251,21 @@ function buildDefaultLayout() {
             }
           } },
           { id: "quote",    type: "quote",     config: { title: "Today's Inspiration" } },
-          { id: "gratint",  type: "twoprompt", config: { titleA: "Gratitude", titleB: "Intention", placeholderA: "What are you grateful for?", placeholderB: "What do you intend to accomplish?", accent: "#c8a96e" } },
+          // #3 — guided AM flow: Gratitude → Intention → Today's Priority.
+          // mode: "all" (default) shows all three prompts; "guided" walks them one at a time.
+          { id: "gratint",  type: "guidedam",  config: {
+              titleA: "Gratitude", titleB: "Intention", titleC: "Today's Priority",
+              placeholderA: "What are you grateful for?",
+              placeholderB: "What do you intend to accomplish?",
+              placeholderC: "The one thing that matters most today...",
+              accent: "#c8a96e", mode: "all"
+          } },
           // #38 — Inline Google Calendar widget (replaces the manual freelist calendar)
           { id: "calendar", type: "gcal",      config: { title: "Today's Calendar", refreshMinutes: 10, calendarId: "primary" } },
-          { id: "checkin1", type: "checkin",   config: { title: "8:30",  color: "#8B4513" } },
-          { id: "checkin2", type: "checkin",   config: { title: "11:00", color: "#B8860B" } },
-          { id: "checkin3", type: "checkin",   config: { title: "2:00",  color: "#1a4a7a" } },
+          // #45 — planksSlot drives auto-tick of "Planks or Pushups" from the planks tile state.
+          { id: "checkin1", type: "checkin",   config: { title: "8:30",  color: "#8B4513", planksSlot: "am" } },
+          { id: "checkin2", type: "checkin",   config: { title: "11:00", color: "#B8860B", planksSlot: "noon" } },
+          { id: "checkin3", type: "checkin",   config: { title: "2:00",  color: "#1a4a7a", planksSlot: "afternoon" } },
           { id: "pmcheck",  type: "checklist", config: { title: "PM Routine", accent: "#4a7a6a", items: ["Inbox zero or triaged","Desk / office cleared","Charge all devices","Tomorrow's top 3 set","Dinner planned or done","Log food for the day","Grateful moment — one thing","Wind down — no screens 30min"] } },
           { id: "twocol1",  type: "twolists",  config: { titleA: "Tomorrow I'll", titleB: "Remind Myself To", countA: 5, countB: 5 } },
           { id: "foodlog",  type: "foodlog",   config: { title: "Food Log", meals: ["Breakfast","Lunch","Dinner","Snack"] } },
@@ -282,6 +291,7 @@ function buildDefaultLayout() {
           { id: "planks",   type: "planks",    config: { title: "Planks" } },
           { id: "dangles",  type: "dangles",   config: { title: "Dangles" } },
           { id: "pushups",  type: "pushups",   config: { title: "Pushup Tracker" } },
+          { id: "musiclog", type: "musiclog",  config: { title: "Music Today", accent: "#8a6abf" } },
           { id: "numbers",  type: "numbers",   config: { title: "Daily Numbers" } },
         ]
       }
@@ -290,7 +300,7 @@ function buildDefaultLayout() {
 }
 
 function emptyStore() {
-  return { layouts: { default: buildDefaultLayout() }, activeLayout: "default", days: {}, version: 4 };
+  return { layouts: { default: buildDefaultLayout() }, activeLayout: "default", days: {}, version: 5 };
 }
 
 // One-shot, idempotent layout migrations for existing users.
@@ -373,8 +383,43 @@ function migrateLayout(store) {
         }
       }
     }
+
+    // #3 — convert the gratint twoprompt tile to the new guidedam tile (3-prompt flow).
+    // Preserves titleA/titleB/placeholderA/placeholderB/accent; adds title/placeholder C defaults.
+    // Per-day data carries forward unchanged (textA, textB persist; textC starts empty).
+    // Guarded on (id="gratint" && type="twoprompt") so the migration is idempotent.
+    for (const col of cols) {
+      for (const tile of col.tiles||[]) {
+        if (tile.id === "gratint" && tile.type === "twoprompt") {
+          const oldCfg = tile.config || {};
+          tile.type = "guidedam";
+          tile.config = {
+            titleA:       oldCfg.titleA       || "Gratitude",
+            titleB:       oldCfg.titleB       || "Intention",
+            titleC:       "Today's Priority",
+            placeholderA: oldCfg.placeholderA || "What are you grateful for?",
+            placeholderB: oldCfg.placeholderB || "What do you intend to accomplish?",
+            placeholderC: "The one thing that matters most today...",
+            accent:       oldCfg.accent       || "#c8a96e",
+            mode:         "all",
+          };
+          changed = true;
+        }
+      }
+    }
+
+    // #45 — backfill planksSlot on existing checkin tiles, derived from title.
+    // Guarded on (type="checkin" && planksSlot===undefined) so the migration is idempotent.
+    for (const col of cols) {
+      for (const tile of col.tiles||[]) {
+        if (tile.type === "checkin" && tile.config && tile.config.planksSlot === undefined) {
+          tile.config = { ...tile.config, planksSlot: deriveCheckinSlot(tile.config.title) };
+          changed = true;
+        }
+      }
+    }
   }
-  if (changed) store.version = 4;
+  if (changed) store.version = 5;
   return store;
 }
 
@@ -387,6 +432,7 @@ const TILE_TYPES = {
   project:    { label: "Project Block",  icon: "▤" },
   freelist:   { label: "Free List",      icon: "≡" },
   twoprompt:  { label: "Two Prompts",    icon: "◫" },
+  guidedam:   { label: "Guided AM",      icon: "➤" },
   checkin:    { label: "Check-In",       icon: "⏱" },
   twolists:   { label: "Two Lists",      icon: "⊞" },
   planks:     { label: "Planks",         icon: "▬" },
@@ -396,6 +442,7 @@ const TILE_TYPES = {
   notes:      { label: "Notes",          icon: "✎" },
   foodlog:    { label: "Food Log",       icon: "⬡" },
   dangles:    { label: "Dangles",         icon: "↕" },
+  musiclog:   { label: "Music Log",       icon: "♪" },
   quote:      { label: "Daily Quote",      icon: "✦" },
   gcal:       { label: "Google Calendar", icon: "🗓" },
 };
@@ -408,7 +455,14 @@ function defaultConfig(type) {
     project:    { title: "Project", count: 4 },
     freelist:   { title: "List", count: 5, placeholder: "..." },
     twoprompt:  { titleA: "Prompt A", titleB: "Prompt B", placeholderA: "...", placeholderB: "...", accent: "#c8a96e" },
-    checkin:    { title: "Check-In", color: "#8B4513" },
+    // #3 — three-prompt guided flow tile (Gratitude → Intention → Priority by default).
+    guidedam:   { titleA: "Gratitude", titleB: "Intention", titleC: "Today's Priority",
+                  placeholderA: "What are you grateful for?",
+                  placeholderB: "What do you intend to accomplish?",
+                  placeholderC: "The one thing that matters most today...",
+                  accent: "#c8a96e", mode: "all" },
+    // #45 — planksSlot defaults to "am" for newly added check-ins; existing tiles get it via migration.
+    checkin:    { title: "Check-In", color: "#8B4513", planksSlot: "am" },
     twolists:   { titleA: "List A", titleB: "List B", countA: 5, countB: 5 },
     planks:     { title: "Planks" },
     pushups:    { title: "Pushup Tracker" },
@@ -416,6 +470,8 @@ function defaultConfig(type) {
     notes:      { title: "Notes" },
     foodlog:    { title: "Food Log", meals: ["Breakfast","Lunch","Dinner","Snack"] },
     dangles:    { title: "Dangles" },
+    // #11 — single-checkbox + free-text-note daily log for music sessions.
+    musiclog:   { title: "Music Today", accent: "#8a6abf" },
     quote:      { title: "Today's Inspiration" },
     counter:    { title: "Counter", target: 10 },
     gcal:       { title: "Today's Calendar", refreshMinutes: 10, calendarId: "primary" },
@@ -469,9 +525,35 @@ function evaluateRule(rule, allDayData) {
         .reduce((sum,[k]) => sum + Number(k||0), 0) >= (rule.threshold||0);
     case "planks-count-gte":
       return Object.values(td.planks||{}).filter(Boolean).length >= (rule.threshold||0);
+    // #45 — a specific planks slot is active. Used to auto-tick the check-in's
+    // "Planks or Pushups" box when the slot matching the check-in's window is done.
+    case "planks-slot-active":
+      return !!(td.planks?.[rule.slot]);
     default:
       return false;
   }
+}
+
+
+// #44 / #45 — time-of-day slot picker. Returns one of am | noon | afternoon | evening.
+// Boundaries per spec: am < 11:30, noon 11:30–13:59, afternoon 14:00–17:59, evening 18:00+.
+function currentSlotKey() {
+  const now = new Date();
+  const mins = now.getHours() * 60 + now.getMinutes();
+  if (mins < 11 * 60 + 30) return "am";        // before 11:30
+  if (mins < 14 * 60)      return "noon";      // 11:30 ≤ now < 14:00
+  if (mins < 18 * 60)      return "afternoon"; // 14:00 ≤ now < 18:00
+  return "evening";                             // 18:00 onward
+}
+
+// #45 — default planksSlot for a check-in, derived from the canonical default titles.
+// Custom-titled check-ins fall back to "evening"; users can override via Configure.
+function deriveCheckinSlot(title) {
+  const t = (title||"").trim();
+  if (t === "8:30")  return "am";
+  if (t === "11:00") return "noon";
+  if (t === "2:00")  return "afternoon";
+  return "evening";
 }
 
 
@@ -815,11 +897,132 @@ function TileTwoPrompt({ config, data={}, onChange, editMode, onRemove, onConfig
   );
 }
 
+// #3 — Guided AM flow tile.
+// Three prompts (titleA/titleB/titleC), two modes:
+//   "all"    — all prompts visible at once inside a single card (data: textA/textB/textC)
+//   "guided" — one prompt at a time, advances on Next, Back rewinds (data: also `step`)
+// Mode is persisted on a per-day basis via data.mode (an inline toggle flips it),
+// with config.mode acting as the per-tile default for fresh days.
+function TileGuidedAM({ config, data={}, onChange, editMode, onRemove, onConfig }) {
+  const defaultMode = config.mode === "guided" ? "guided" : "all";
+  const mode = (data.mode === "guided" || data.mode === "all") ? data.mode : defaultMode;
+
+  const prompts = [
+    { key: "A", title: config.titleA || "Gratitude",        placeholder: config.placeholderA || "What are you grateful for?" },
+    { key: "B", title: config.titleB || "Intention",        placeholder: config.placeholderB || "What do you intend to accomplish?" },
+    { key: "C", title: config.titleC || "Today's Priority", placeholder: config.placeholderC || "The one thing that matters most today..." },
+  ];
+
+  const stepRaw = Number.isInteger(data.step) ? data.step : 0;
+  const step    = Math.max(0, Math.min(stepRaw, prompts.length - 1));
+  const filled  = prompts.map(p => !!(data[`text${p.key}`] && data[`text${p.key}`].trim()));
+  const filledCount = filled.filter(Boolean).length;
+  const accent  = config.accent || "#c8a96e";
+
+  const updateText = (key, v) => onChange({...data, [`text${key}`]: v});
+  const setStep    = n        => onChange({...data, step: Math.max(0, Math.min(n, prompts.length-1))});
+  const toggleMode = ()       => onChange({...data, mode: mode === "guided" ? "all" : "guided"});
+
+  const header = React.createElement("div", {
+    style:{display:"flex",alignItems:"center",justifyContent:"space-between",
+      paddingBottom:"5px",marginBottom:"9px",borderBottom:"1px solid var(--border-dim)"}
+  },
+    React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-muted)"} },
+      mode === "guided" ? `Guided · step ${step+1}/${prompts.length}` : `${filledCount}/${prompts.length} filled`
+    ),
+    React.createElement("div", { style:{display:"flex",alignItems:"center",gap:"7px"} },
+      React.createElement("div", { style:{display:"flex",gap:"5px"} },
+        prompts.map((_, i) => React.createElement("div", { key:i,
+          style:{width:"7px",height:"7px",borderRadius:"50%",
+            background: filled[i] ? accent : (mode==="guided" && i===step ? "var(--border)" : "var(--border-dim)"),
+            border: mode==="guided" && i===step && !filled[i] ? `1px solid ${accent}` : "none",
+            transition:"all 0.2s"}
+        }))
+      ),
+      React.createElement("button", {
+        onClick: toggleMode,
+        title: mode === "guided" ? "Show all prompts" : "Step-by-step mode",
+        style:{background:"transparent",border:"1px solid var(--border-dim)",color:"var(--text-faint)",
+          fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"1px 7px",borderRadius:"3px",
+          cursor:"pointer",letterSpacing:"0.5px",lineHeight:1.4}
+      }, mode === "guided" ? "≡" : "→")
+    )
+  );
+
+  if (mode === "guided") {
+    const p = prompts[step];
+    return React.createElement(CardShell, {
+      title: config.title || "AM Guided Flow", accent, editMode, onRemove, onConfig
+    },
+      header,
+      React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"10px",letterSpacing:"1.5px",textTransform:"uppercase",color:accent,marginBottom:"6px"} }, p.title),
+      React.createElement(AutoTA, {
+        value: data[`text${p.key}`] || "",
+        placeholder: p.placeholder,
+        onChange: v => updateText(p.key, v),
+        style: { minHeight: "70px", fontSize: "12px" }
+      }),
+      React.createElement("div", { style:{display:"flex",gap:"6px",marginTop:"10px"} },
+        React.createElement("button", {
+          onClick: () => setStep(step-1),
+          disabled: step === 0,
+          style:{flex:"0 0 auto",background:"var(--bg-hover)",border:"1px solid var(--border)",
+            color: step===0 ? "var(--text-faint)" : "var(--text-dim)",
+            fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"6px 12px",borderRadius:"4px",
+            cursor: step===0 ? "default" : "pointer"}
+        }, "← Back"),
+        React.createElement("button", {
+          onClick: () => { if (step < prompts.length-1) setStep(step+1); },
+          disabled: step === prompts.length-1,
+          style:{flex:1,background: step===prompts.length-1 ? "var(--bg-hover)" : "var(--accent-dim)",
+            border:`1px solid ${step===prompts.length-1 ? "var(--border)" : accent}`,
+            color: step===prompts.length-1 ? "var(--text-faint)" : accent,
+            fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"6px 12px",borderRadius:"4px",
+            cursor: step===prompts.length-1 ? "default" : "pointer"}
+        }, step === prompts.length-1 ? "✓ Done" : "Next →")
+      )
+    );
+  }
+
+  // mode === "all" — stack the three prompts inside one card.
+  return React.createElement(CardShell, {
+    title: config.title || "AM Guided Flow", accent, editMode, onRemove, onConfig
+  },
+    header,
+    React.createElement("div", { style:{display:"flex",flexDirection:"column",gap:"12px"} },
+      prompts.map(p =>
+        React.createElement("div", { key:p.key },
+          React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"1.5px",textTransform:"uppercase",color:accent,marginBottom:"4px"} }, p.title),
+          React.createElement(AutoTA, {
+            value: data[`text${p.key}`] || "",
+            placeholder: p.placeholder,
+            onChange: v => updateText(p.key, v),
+            style: { fontSize: "12px", minHeight: "32px" }
+          })
+        )
+      )
+    )
+  );
+}
+
 function TileCheckIn({ config, data={}, onChange, editMode, onRemove, allDayData }) {
   const c = config.color||"var(--border)";
-  const items = data.items || ["","","","",""];
+
+  // #43 — items shape changed from string[] to {text,done}[]; convert legacy data lazily.
+  // No data migration needed; the lazy convert handles both old and new days transparently.
+  const rawItems = data.items || ["","","","",""];
+  const items = rawItems.map(it => typeof it === "string" ? { text: it, done: false } : (it || { text:"", done:false }));
+
+  // #45 — auto-tick "Planks or Pushups" from the planks tile state, gated by the
+  // configured planksSlot (am/noon/afternoon/evening, or "none" to disable).
+  // planksSlot falls back to a title-derived default for tiles that haven't been migrated yet.
+  const planksSlot = config.planksSlot || deriveCheckinSlot(config.title);
+  const planksAutoChecked = planksSlot && planksSlot !== "none"
+    && !!(allDayData?.planks?.planks?.[planksSlot]);
+  const planksEffective = !!data.planks || planksAutoChecked;
+
   // #37 — feeling (emoji) and feelingNote (text) are paired and either may be set
-  const isDone = data.planks||data.food||data.priorities||data.feeling?.trim()||data.feelingNote?.trim();
+  const isDone = planksEffective||data.food||data.priorities||data.feeling?.trim()||data.feelingNote?.trim();
 
   // Frog = priority #1 (index 0) only
   const priData = Object.values(allDayData||{}).find(t=>t?._type==="priorities");
@@ -856,7 +1059,28 @@ function TileCheckIn({ config, data={}, onChange, editMode, onRemove, allDayData
     ),
     React.createElement("div", { style:{padding:"10px",background:"var(--bg-card)",display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"} },
       React.createElement("div", null,
-        React.createElement(CB, { checked:!!data.planks, onChange:v=>onChange({...data,planks:v}), label:"Planks or Pushups" }),
+        // #45 — planks checkbox shows effective state (auto OR manual). Auto-checked-only
+        // is disabled to mirror the TileChecklist auto-rule UX. ⚡ marker indicates auto.
+        React.createElement("label", {
+          style:{display:"flex",alignItems:"flex-start",gap:"7px",
+            cursor: planksAutoChecked && !data.planks ? "default" : "pointer",
+            padding:"3px 0",color:"var(--text-dim)",fontSize:"12px",lineHeight:1.5,
+            opacity: planksAutoChecked && !data.planks ? 0.85 : 1}
+        },
+          React.createElement("div", { style:{position:"relative",flexShrink:0,marginTop:"3px"} },
+            React.createElement("input", { type:"checkbox",
+              checked: planksEffective,
+              disabled: planksAutoChecked && !data.planks,
+              onChange: e => onChange({...data, planks: e.target.checked}),
+              style:{accentColor: planksAutoChecked ? "#8a7040" : "#c8a96e", width:"13px", height:"13px",
+                cursor: planksAutoChecked && !data.planks ? "default" : "pointer"}
+            }),
+            planksAutoChecked && React.createElement("span", {
+              style:{position:"absolute",top:"-1px",right:"-8px",fontSize:"8px",color:"var(--accent)",pointerEvents:"none",lineHeight:1}
+            }, "⚡")
+          ),
+          React.createElement("span", null, "Planks or Pushups")
+        ),
         React.createElement(CB, { checked:!!data.food, onChange:v=>onChange({...data,food:v}), label:"Food Logged" }),
         React.createElement(CB, { checked:!!data.priorities, onChange:v=>onChange({...data,priorities:v}), label:"Next Priorities" }),
         React.createElement("div", { style:{marginTop:"8px"} },
@@ -875,7 +1099,19 @@ function TileCheckIn({ config, data={}, onChange, editMode, onRemove, allDayData
       ),
       React.createElement("div", null,
         React.createElement("div", { style:{fontSize:"9px",color:"var(--text-muted)",marginBottom:"5px",letterSpacing:"1px",textTransform:"uppercase"} }, "Next 2.5 hrs"),
-        React.createElement(BulletList, { items, onChange:v=>onChange({...data,items:v}) })
+        // #43 — tickable rows: checkbox + auto-expanding text. Data shape is {text,done}[].
+        React.createElement("div", { style:{display:"flex",flexDirection:"column",gap:"4px"} },
+          items.map((it, i) =>
+            React.createElement("div", { key:i, style:{display:"flex",alignItems:"flex-start",gap:"6px"} },
+              React.createElement("input", { type:"checkbox", checked:!!it.done,
+                onChange: e => { const n=[...items]; n[i]={...it,done:e.target.checked}; onChange({...data,items:n}); },
+                style:{marginTop:"4px",flexShrink:0,accentColor:"#c8a96e",width:"13px",height:"13px",cursor:"pointer"} }),
+              React.createElement(AutoTA, { value:it.text||"", placeholder:"...",
+                onChange: v => { const n=[...items]; n[i]={...it,text:v}; onChange({...data,items:n}); },
+                style: it.done ? {textDecoration:"line-through",color:"var(--text-muted)"} : {} })
+            )
+          )
+        )
       )
     )
   );
@@ -1024,10 +1260,13 @@ function TilePlanks({ config, data={}, onChange, editMode, onRemove, onConfig })
 
   const handleComplete = () => {
     setRunning(false);
-    // Check next unchecked slot
-    const nextSlot = slots.find(([k])=>!p[k]);
-    if (nextSlot) {
-      onChange({...data, planks:{...p, [nextSlot[0]]:true}, timerSecs});
+    // #44 — prefer the slot matching the current time of day. Fall back to the first
+    // unchecked slot (the prior behavior) if that slot is already done.
+    const nowKey  = currentSlotKey();
+    const nowSlot = slots.find(([k])=>k===nowKey && !p[k]);
+    const target  = nowSlot || slots.find(([k])=>!p[k]);
+    if (target) {
+      onChange({...data, planks:{...p, [target[0]]:true}, timerSecs});
     }
   };
 
@@ -1078,19 +1317,33 @@ function TilePlanks({ config, data={}, onChange, editMode, onRemove, onConfig })
 }
 
 function TileDangles({ config, data={}, onChange, editMode, onRemove, onConfig }) {
+  // #44 — slots map array indices to time-of-day labels (AM, Noon, PM, Eve).
+  // Data shape stays positional (data.checks is still a 4-element bool array): index 0=AM, 1=Noon, 2=PM, 3=Eve.
+  const SLOT_LABELS = ["AM", "Noon", "PM", "Eve"];
+  const SLOT_KEYS   = ["am", "noon", "afternoon", "evening"];
   const checks = data.checks || [false, false, false, false];
   const [running, setRunning] = useState(false);
   const doneCount = checks.filter(Boolean).length;
   const allDone = doneCount === 4;
 
+  // Slot to use when starting / on timer complete: prefer the current time-of-day slot,
+  // fall back to the first unchecked (the prior behavior).
+  const pickTargetIdx = () => {
+    const nowIdx = SLOT_KEYS.indexOf(currentSlotKey());
+    if (nowIdx >= 0 && !checks[nowIdx]) return nowIdx;
+    return checks.findIndex(c=>!c);
+  };
+
   const handleComplete = () => {
     setRunning(false);
-    const nextIdx = checks.findIndex(c=>!c);
-    if (nextIdx !== -1) {
-      const n = [...checks]; n[nextIdx] = true;
+    const useIdx = pickTargetIdx();
+    if (useIdx !== -1) {
+      const n = [...checks]; n[useIdx] = true;
       onChange({...data, checks: n});
     }
   };
+
+  const startIdx = allDone ? 0 : Math.max(0, pickTargetIdx());
 
   return React.createElement(React.Fragment, null,
     running && React.createElement(FullscreenTimer, {
@@ -1119,15 +1372,16 @@ function TileDangles({ config, data={}, onChange, editMode, onRemove, onConfig }
           }))
         )
       ),
-      // 4 checkboxes — each = 30 sec hang
+      // 4 checkboxes — each = 30 sec hang, labeled AM/Noon/PM/Eve (#44)
       React.createElement("div", { style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"6px",marginBottom:"10px"} },
         checks.map((done, i) =>
           React.createElement("button", { key:i,
             onClick: () => { const n=[...checks]; n[i]=!n[i]; onChange({...data,checks:n}); },
             style:{background:done?"#1a2a1a":"var(--bg-card)",border:`1px solid ${done?"#4a7a4a":"var(--border)"}`,
-              borderRadius:"5px",padding:"10px 4px",cursor:"pointer",
-              display:"flex",flexDirection:"column",alignItems:"center",gap:"4px"}
+              borderRadius:"5px",padding:"8px 4px",cursor:"pointer",
+              display:"flex",flexDirection:"column",alignItems:"center",gap:"3px"}
           },
+            React.createElement("span", { style:{fontSize:"9px",color:done?"#4a7a4a":"#888",fontFamily:"'DM Mono',monospace",letterSpacing:"0.5px"} }, SLOT_LABELS[i]),
             React.createElement("span", { style:{fontSize:"16px"} }, done ? "✓" : "○"),
             React.createElement("span", { style:{fontSize:"9px",color:done?"#4a7a4a":"#444",fontFamily:"'DM Mono',monospace",letterSpacing:"0.5px"} }, "0:30")
           )
@@ -1143,7 +1397,7 @@ function TileDangles({ config, data={}, onChange, editMode, onRemove, onConfig }
           color:allDone?"#4a7a4a":"#9a7ab0",padding:"8px",borderRadius:"4px",
           cursor:allDone?"default":"pointer",fontFamily:"'DM Mono',monospace",
           fontSize:"11px",letterSpacing:"1px"}
-      }, allDone ? "✓ All sets done" : `▶ Start set ${doneCount+1} of 4`)
+      }, allDone ? "✓ All sets done" : `▶ Start ${SLOT_LABELS[startIdx]} set`)
     )
   );
 }
@@ -1484,6 +1738,31 @@ function TileCounter({ config, data={}, onChange, editMode, onRemove, onConfig }
   );
 }
 
+// #11 — Music creation daily log. One checkbox ("Made music today") + a free-form note.
+// Both are optional; check + empty note is fine, note + unchecked is fine.
+// When checked, the accent flips green to match the completion pattern used elsewhere.
+function TileMusicLog({ config, data={}, onChange, editMode, onRemove, onConfig }) {
+  const checked = !!data.done;
+  const accent = checked ? "#4a7a4a" : (config.accent || "#8a6abf");
+  return React.createElement(CardShell, {
+    title: config.title || "Music Today", accent, editMode, onRemove, onConfig
+  },
+    React.createElement(CB, {
+      checked,
+      onChange: v => onChange({...data, done: v}),
+      label: "Made music today"
+    }),
+    React.createElement("div", { style:{marginTop:"8px"} },
+      React.createElement(AutoTA, {
+        value: data.note || "",
+        placeholder: "what did you work on?",
+        onChange: v => onChange({...data, note: v}),
+        style: { fontSize:"11px", lineHeight:1.5 }
+      })
+    )
+  );
+}
+
 // ─── TILE DISPATCH ────────────────────────────────────────────────────────────
 
 function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDayData, isAuthed, authEpoch, onReauth }) {
@@ -1496,6 +1775,7 @@ function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDay
     case "project":    return React.createElement(TileProject, props);
     case "freelist":   return React.createElement(TileFreeList, props);
     case "twoprompt":  return React.createElement(TileTwoPrompt, props);
+    case "guidedam":   return React.createElement(TileGuidedAM, props);
     case "checkin":    return React.createElement(TileCheckIn, props);
     case "twolists":   return React.createElement(TileTwoLists, props);
     case "pushups":    return React.createElement(TilePushups, props);
@@ -1504,6 +1784,7 @@ function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDay
     case "notes":      return React.createElement(TileNotes, props);
     case "foodlog":    return React.createElement(TileFoodLog, props);
     case "dangles":    return React.createElement(TileDangles, props);
+    case "musiclog":   return React.createElement(TileMusicLog, props);
     case "quote":      return React.createElement(TileQuote, props);
     case "counter":    return React.createElement(TileCounter, props);
     case "gcal":       return React.createElement(TileGcal, {...props, isAuthed, authEpoch, onReauth});
@@ -1597,6 +1878,39 @@ function ConfigModal({ tile, onSave, onClose }) {
             )
           );
         }
+        // #45 — special-case the checkin planksSlot field as a time-of-day dropdown.
+        if (k === "planksSlot" && tile.type === "checkin") {
+          return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
+            label,
+            React.createElement("select", {
+              value: v,
+              onChange: e => setCfg({...cfg, [k]: e.target.value}),
+              style: inputStyle
+            },
+              [
+                ["am",        "AM (before 11:30)"],
+                ["noon",      "Noon (11:30–14:00)"],
+                ["afternoon", "PM (14:00–18:00)"],
+                ["evening",   "Evening (18:00+)"],
+                ["none",      "Disable auto-tick"],
+              ].map(([val,name]) => React.createElement("option", { key:val, value:val }, name))
+            )
+          );
+        }
+        // #3 — special-case the guidedam mode field as a dropdown.
+        if (k === "mode" && tile.type === "guidedam") {
+          return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
+            label,
+            React.createElement("select", {
+              value: v,
+              onChange: e => setCfg({...cfg, [k]: e.target.value}),
+              style: inputStyle
+            },
+              React.createElement("option", { value: "all" }, "All visible"),
+              React.createElement("option", { value: "guided" }, "Guided (step-by-step)")
+            )
+          );
+        }
         if (typeof v === "string") return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
           label, React.createElement("input", { value:v, onChange:e=>setCfg({...cfg,[k]:e.target.value}), style:inputStyle }));
         if (typeof v === "number") return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
@@ -1667,6 +1981,17 @@ function HistoryView({ store }) {
               td.textA && React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"12px",marginBottom:"6px"} }, React.createElement("span", { style:{color:"var(--text-muted)"} }, `${tile.config.titleA}: `), td.textA),
               td.textB && React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"12px"} }, React.createElement("span", { style:{color:"var(--text-muted)"} }, `${tile.config.titleB}: `), td.textB)
             ),
+            // #3 — guidedam history mirrors twoprompt, plus the third "Priority" prompt.
+            // Past-day data written under the old twoprompt type still renders correctly here
+            // since the migration only changes the tile type, not the per-day field names.
+            tile.type === "guidedam" && React.createElement("div", null,
+              td.textA && React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"12px",marginBottom:"6px"} },
+                React.createElement("span", { style:{color:"var(--text-muted)"} }, `${tile.config.titleA||"Gratitude"}: `), td.textA),
+              td.textB && React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"12px",marginBottom:"6px"} },
+                React.createElement("span", { style:{color:"var(--text-muted)"} }, `${tile.config.titleB||"Intention"}: `), td.textB),
+              td.textC && React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"12px"} },
+                React.createElement("span", { style:{color:"var(--text-muted)"} }, `${tile.config.titleC||"Priority"}: `), td.textC)
+            ),
             (tile.type === "freelist" || tile.type === "project") && React.createElement("div", null,
               (td.items||[]).filter(x=>x).map((item,i) => React.createElement("div", { key:i, style:{color:"var(--text-dim)",fontSize:"12px",marginBottom:"2px"} }, `○ ${item}`))
             ),
@@ -1681,6 +2006,13 @@ function HistoryView({ store }) {
                 td.feeling && React.createElement("span", { style:{fontSize:"16px",fontStyle:"normal",flexShrink:0,lineHeight:1.3} }, td.feeling),
                 td.feelingNote && React.createElement("span", { style:{lineHeight:1.5} }, `"${td.feelingNote}"`)
               )
+            ),
+            // #11 — music log history: checkbox state + optional note.
+            tile.type === "musiclog" && React.createElement("div", { style:{fontSize:"12px"} },
+              React.createElement("div", { style:{color: td.done?"#4a7a4a":"var(--text-muted)",marginBottom:td.note?"4px":0} },
+                td.done ? "✓ Made music" : "○ No music logged"
+              ),
+              td.note && React.createElement("div", { style:{fontStyle:"italic",color:"var(--text-dim)",lineHeight:1.5} }, `"${td.note}"`)
             ),
             ["checklist"].includes(tile.type) && React.createElement("div", null,
               tile.config.items?.map((item,i) =>
