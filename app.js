@@ -1224,7 +1224,7 @@ function TileNotes({ config, data={}, onChange, editMode, onRemove, onConfig }) 
 // Read-only single-day timeline of today's events from the user's primary calendar.
 // Auth is shared with the rest of the app (drive.file + calendar.readonly scopes).
 // Re-fetches on mount and on the configured interval (default 10 min).
-function TileGcal({ config, data={}, onChange, editMode, onRemove, onConfig, allDayData, isAuthed, onReauth }) {
+function TileGcal({ config, data={}, onChange, editMode, onRemove, onConfig, allDayData, isAuthed, authEpoch, onReauth }) {
   const [events, setEvents]   = React.useState(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError]     = React.useState(null);
@@ -1255,7 +1255,8 @@ function TileGcal({ config, data={}, onChange, editMode, onRemove, onConfig, all
     load();
     const id = setInterval(load, refreshMin * 60 * 1000);
     return () => clearInterval(id);
-  }, [isAuthed, refreshMin, load]);
+    // authEpoch bumps after every successful auth so a fresh consent re-triggers the fetch
+  }, [isAuthed, authEpoch, refreshMin, load]);
 
   const accent = "#5a7aa0";
 
@@ -1372,7 +1373,7 @@ function TileCounter({ config, data={}, onChange, editMode, onRemove, onConfig }
 
 // ─── TILE DISPATCH ────────────────────────────────────────────────────────────
 
-function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDayData, isAuthed, onReauth }) {
+function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDayData, isAuthed, authEpoch, onReauth }) {
   const wrapped = d => onChange({ ...d, _type: tile.type });
   const props = { config:tile.config, data, onChange:wrapped, editMode, onRemove, onConfig, allDayData };
   switch(tile.type) {
@@ -1392,7 +1393,7 @@ function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDay
     case "dangles":    return React.createElement(TileDangles, props);
     case "quote":      return React.createElement(TileQuote, props);
     case "counter":    return React.createElement(TileCounter, props);
-    case "gcal":       return React.createElement(TileGcal, {...props, isAuthed, onReauth});
+    case "gcal":       return React.createElement(TileGcal, {...props, isAuthed, authEpoch, onReauth});
     default: return React.createElement("div", { style:{color:"var(--text-muted)",padding:"12px",fontSize:"11px"} }, `Unknown: ${tile.type}`);
   }
 }
@@ -1553,6 +1554,7 @@ function SyncDot({ status }) {
 function App() {
   const [store, setStore]         = useState(null);
   const [authState, setAuthState] = useState("idle"); // idle | authing | authed | error
+  const [authEpoch, setAuthEpoch] = useState(0); // bumps after each successful auth; calendar tile etc. watch this to re-fetch
   const [syncStatus, setSyncStatus] = useState("idle"); // idle | saving | saved | error | offline
   const [view, setView]           = useState("today");
   const [editMode, setEditMode]   = useState(false);
@@ -1571,7 +1573,11 @@ function App() {
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
-  function initGoogleAuth() {
+  // `force` = true means we want the consent dialog to actually appear
+  // (e.g. user clicked "Re-authorize" because a needed scope is missing).
+  // Without `prompt: "consent"`, Google will silently return whatever scopes
+  // it already has on file, even if that's an incomplete subset of what we asked for.
+  function initGoogleAuth(force = false) {
     if (!CLIENT_ID || CLIENT_ID === "YOUR_GOOGLE_CLIENT_ID_HERE") {
       setAuthState("no-config");
       return;
@@ -1582,13 +1588,28 @@ function App() {
         client_id: CLIENT_ID,
         scope: SCOPES,
         callback: async (resp) => {
-          if (resp.error) { setAuthState("error"); return; }
+          if (resp.error) {
+            console.error("Google auth error:", resp.error, resp.error_description);
+            setAuthState("error");
+            return;
+          }
           _token = resp.access_token;
+          // Surface any missing scopes so the calendar tile can show a real error
+          // instead of silently looping on 403.
+          const granted = (resp.scope || "").split(" ").filter(Boolean);
+          const requested = SCOPES.split(" ").filter(Boolean);
+          const missing = requested.filter(s => !granted.includes(s));
+          if (missing.length) {
+            console.warn("OAuth token issued without requested scopes:", missing,
+              "— check Google Cloud Console: enable the API and add the scope to your OAuth consent screen.");
+          }
+          window.__daymasterGrantedScopes = granted;
           setAuthState("authed");
+          setAuthEpoch(e => e + 1);
           await syncDown();
         }
       });
-      client.requestAccessToken({ prompt: "" });
+      client.requestAccessToken({ prompt: force ? "consent" : "" });
     } catch(e) {
       console.error("Auth error", e);
       setAuthState("error");
@@ -1943,7 +1964,8 @@ function App() {
                   onConfig: () => setConfigTile({tile, colId:col.id}),
                   allDayData: todayData,
                   isAuthed,
-                  onReauth: initGoogleAuth,
+                  authEpoch,
+                  onReauth: () => initGoogleAuth(true),
                 })
               );
             }),
