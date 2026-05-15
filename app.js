@@ -2715,19 +2715,22 @@ function App() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  if (!store) return React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"var(--bg)",color:"var(--text-muted)",fontFamily:"monospace"} }, "Loading...");
-
-  const layoutKey = store.activeLayout || "default";
-  const layout = store.layouts[layoutKey] || store.layouts[Object.keys(store.layouts)[0]];
-  const todayData = store.days[todayKey()]||{};
   // #49 — tilesById is the lookup the tile-event rule type uses to resolve a
-  // source tile's CURRENT type (rather than relying on td._type, which may be
-  // stale across renames). Cheap to compute; recomputed only when layout changes.
+  // source tile's CURRENT type. Must be declared BEFORE the early-return below
+  // (Rules of Hooks: hook count must be stable across renders).
+  // Uses optional-chaining so it's safe to call when store is still null on
+  // first render; on later renders the proper layout object flows in.
+  const layoutKey = store?.activeLayout || "default";
+  const layout    = store?.layouts?.[layoutKey] || (store && store.layouts ? store.layouts[Object.keys(store.layouts)[0]] : null);
   const tilesById = React.useMemo(() => {
     const map = {};
     for (const col of layout?.columns || []) for (const t of col.tiles || []) map[t.id] = t;
     return map;
   }, [layout]);
+
+  if (!store) return React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"var(--bg)",color:"var(--text-muted)",fontFamily:"monospace"} }, "Loading...");
+
+  const todayData = store.days[todayKey()]||{};
   const allLayoutEntries = Object.entries(store.layouts || {});
   const d = new Date();
 
