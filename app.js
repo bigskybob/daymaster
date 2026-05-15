@@ -244,10 +244,14 @@ function buildDefaultLayout() {
               "DON'T list set",
               "8:30 check-in ready"
             ],
+            // #49 — Mise auto-tick rules. Index 5 ("Gratitude + intention") uses the new
+            // generic `tile-event` connector pointing at the guided AM tile's "gratitude-intention"
+            // event (textA && textB filled), replacing the legacy twoprompt-both rule
+            // since gratint is no longer a twoprompt tile.
             rules: {
-              4: { type: "priorities-any",   tileId: "priorities" },
-              5: { type: "twoprompt-both",   tileId: "gratint"    },
-              10: { type: "checkin-any",     tileId: "checkin1"   }
+              4: { type: "priorities-any", tileId: "priorities" },
+              5: { type: "tile-event", sourceTileId: "gratint", event: "gratitude-intention" },
+              10: { type: "checkin-any",   tileId: "checkin1" }
             }
           } },
           { id: "quote",    type: "quote",     config: { title: "Today's Inspiration" } },
@@ -300,7 +304,7 @@ function buildDefaultLayout() {
 }
 
 function emptyStore() {
-  return { layouts: { default: buildDefaultLayout() }, activeLayout: "default", days: {}, version: 5 };
+  return { layouts: { default: buildDefaultLayout() }, activeLayout: "default", days: {}, version: 6 };
 }
 
 // One-shot, idempotent layout migrations for existing users.
@@ -418,8 +422,52 @@ function migrateLayout(store) {
         }
       }
     }
+
+    // #49 — upgrade legacy twoprompt-both rules pointing at gratint to the new
+    // generic tile-event mechanism. After the gratint tile became a guidedam tile,
+    // twoprompt-both still happens to evaluate correctly (textA && textB), but the
+    // rule type is misleadingly named and isn't expressible via the new editor UI.
+    // Guarded on (rule.type === "twoprompt-both" && rule.tileId === "gratint").
+    for (const col of cols) {
+      for (const tile of col.tiles||[]) {
+        if (!tile.config?.rules) continue;
+        const newRules = { ...tile.config.rules };
+        let mut = false;
+        for (const k of Object.keys(newRules)) {
+          const r = newRules[k];
+          if (r?.type === "twoprompt-both" && r.tileId === "gratint") {
+            newRules[k] = { type: "tile-event", sourceTileId: "gratint", event: "gratitude-intention" };
+            mut = true;
+          }
+        }
+        if (mut) { tile.config = { ...tile.config, rules: newRules }; changed = true; }
+      }
+    }
   }
-  if (changed) store.version = 5;
+
+  // #33 — seed a few preset layouts derived from the default. Idempotent: each
+  // preset key is only added if missing. Users can rename / delete via the UI.
+  // Each preset is a fully independent layout (deep clone) so edits don't bleed
+  // back into Daily.
+  const PRESET_SEEDS = [
+    { key: "am-focus",   name: "AM Focus",     tileIds: ["donts","priorities","morning","quote","gratint","calendar","checkin1","exercise","planks","pushups","dangles"] },
+    { key: "pm-wind",    name: "PM Wind-down", tileIds: ["priorities","pmcheck","checkin3","twocol1","foodlog","twocol2","musiclog","numbers"] },
+    { key: "fitness",    name: "Fitness",      tileIds: ["priorities","morning","checkin1","exercise","planks","pushups","dangles","numbers"] },
+  ];
+  for (const seed of PRESET_SEEDS) {
+    if (!store.layouts[seed.key]) {
+      const def = buildDefaultLayout();
+      def.name = seed.name;
+      def.columns = def.columns.map(c => ({
+        ...c,
+        tiles: c.tiles.filter(t => seed.tileIds.includes(t.id))
+      })).filter(c => c.tiles.length > 0 || c.id === "col-center"); // keep col-center even if empty so layout doesn't collapse weirdly
+      store.layouts[seed.key] = def;
+      changed = true;
+    }
+  }
+
+  if (changed) store.version = 6;
   return store;
 }
 
@@ -445,6 +493,7 @@ const TILE_TYPES = {
   musiclog:   { label: "Music Log",       icon: "♪" },
   quote:      { label: "Daily Quote",      icon: "✦" },
   gcal:       { label: "Google Calendar", icon: "🗓" },
+  notionlinks:{ label: "Notion Links",    icon: "⌘" },
 };
 
 function defaultConfig(type) {
@@ -475,6 +524,13 @@ function defaultConfig(type) {
     quote:      { title: "Today's Inspiration" },
     counter:    { title: "Counter", target: 10 },
     gcal:       { title: "Today's Calendar", refreshMinutes: 10, calendarId: "primary" },
+    // #46 — static list of clickable Notion (or any) links. Pure UI, no API.
+    // Dynamic version (live database queries) deferred to #50.
+    notionlinks:{ title: "Notion Quick Links", accent: "#7a6abf",
+                  links: [
+                    { label: "Notion home", url: "https://www.notion.so" },
+                    { label: "Backlog",     url: "https://www.notion.so" },
+                  ] },
   };
   return map[type] || { title: type };
 }
@@ -483,11 +539,92 @@ function defaultConfig(type) {
 // ─── AUTO-RULE ENGINE ────────────────────────────────────────────────────────
 // Evaluates whether a checklist item should be auto-completed
 // based on the state of another tile. Extensible — add new rule types here.
+//
+// #49 — TILE_EVENTS is the named-event vocabulary for the generic `tile-event`
+// rule type. Each tile type lists a small set of evaluable boolean events that
+// can drive auto-ticks on other tiles. This is the first-class linkage layer:
+// new event keys can be added here without touching evaluateRule, and the
+// ConfigModal rules editor surfaces these names verbatim.
+//
+// Add a new event: pick the source tile type, append { key, label, evaluate(td) }.
+// Quantitative rules with thresholds (pushups-total-gte, planks-count-gte) remain
+// as dedicated rule types since they take parameters.
 
-function evaluateRule(rule, allDayData) {
+const TILE_EVENTS = {
+  guidedam: [
+    { key: "any-prompt",           label: "Any prompt filled",          evaluate: td => !!(td.textA?.trim() || td.textB?.trim() || td.textC?.trim()) },
+    { key: "gratitude-intention",  label: "Gratitude + intention done", evaluate: td => !!(td.textA?.trim() && td.textB?.trim()) },
+    { key: "all-prompts-filled",   label: "All three prompts filled",   evaluate: td => !!(td.textA?.trim() && td.textB?.trim() && td.textC?.trim()) },
+  ],
+  twoprompt: [
+    { key: "either",  label: "Either prompt filled",  evaluate: td => !!(td.textA?.trim() || td.textB?.trim()) },
+    { key: "both",    label: "Both prompts filled",   evaluate: td => !!(td.textA?.trim() && td.textB?.trim()) },
+  ],
+  priorities: [
+    { key: "any",        label: "Any priority filled",  evaluate: td => (td.priorities||[]).some(p=>p.text?.trim()) },
+    { key: "frog-set",   label: "Frog set (top item)",  evaluate: td => !!(td.priorities?.[0]?.text?.trim()) },
+    { key: "frog-done",  label: "Frog completed",        evaluate: td => !!(td.priorities?.[0]?.text?.trim() && td.priorities?.[0]?.done) },
+    { key: "all-done",   label: "All filled priorities done", evaluate: td => {
+        const p = (td.priorities||[]).filter(x => x.text?.trim());
+        return p.length > 0 && p.every(x => x.done);
+    } },
+  ],
+  musiclog: [
+    { key: "done",   label: "Made music today",     evaluate: td => !!td.done },
+    { key: "noted",  label: "Note written",         evaluate: td => !!(td.note?.trim()) },
+  ],
+  checkin: [
+    { key: "any",       label: "Any field filled",                evaluate: td => !!(td.planks||td.food||td.priorities||td.feeling?.trim()||td.feelingNote?.trim()) },
+    { key: "complete",  label: "All three boxes checked",          evaluate: td => !!(td.planks && td.food && td.priorities) },
+    { key: "items-any", label: "Any next-priorities item ticked",  evaluate: td => (td.items||[]).some(it => typeof it === "object" ? !!it.done : false) },
+  ],
+  checklist: [
+    { key: "any",   label: "Any item checked",   evaluate: td => (td.checks||[]).some(Boolean) },
+    { key: "all",   label: "All items checked",  evaluate: td => (td.checks||[]).length > 0 && (td.checks||[]).every(Boolean) },
+  ],
+  textprompt: [
+    { key: "any",  label: "Text filled",  evaluate: td => !!(td.text?.trim()) },
+  ],
+  freelist: [
+    { key: "any",  label: "Any item filled",  evaluate: td => (td.items||[]).some(x=>x?.trim()) },
+  ],
+  foodlog: [
+    { key: "any",  label: "Any meal logged",   evaluate: td => (td.logs||[]).some(l=>l.done) },
+    { key: "all",  label: "All meals logged",  evaluate: td => (td.logs||[]).length > 0 && (td.logs||[]).every(l=>l.done) },
+  ],
+  pushups: [
+    { key: "any",  label: "Any pushup count ticked", evaluate: td => Object.values(td.pushups||{}).some(Boolean) },
+  ],
+  planks: [
+    { key: "any",  label: "Any plank slot done", evaluate: td => Object.values(td.planks||{}).some(Boolean) },
+  ],
+  dangles: [
+    { key: "any",  label: "Any dangle ticked",   evaluate: td => (td.checks||[]).some(Boolean) },
+  ],
+  notes: [
+    { key: "any",  label: "Note written",  evaluate: td => !!(td.text?.trim()) },
+  ],
+  numbers: [],
+  project: [
+    { key: "any",  label: "Any project item filled",  evaluate: td => (td.items||[]).some(x=>x?.trim()) },
+  ],
+  twolists: [
+    { key: "any",   label: "Any item filled (either list)",  evaluate: td => ((td.itemsA||[]).some(x=>x?.trim()) || (td.itemsB||[]).some(x=>x?.trim())) },
+  ],
+  counter: [
+    { key: "any",  label: "Counter above zero", evaluate: td => (td.count||0) > 0 },
+  ],
+  gcal: [],
+  notionlinks: [],
+};
+
+// #49 — evaluateRule now optionally accepts a tilesById lookup so the new
+// tile-event rule type can resolve the source tile's type. Legacy rules ignore
+// the third arg, so existing callers that don't pass it still work.
+function evaluateRule(rule, allDayData, tilesById) {
   if (!rule || !allDayData) return false;
-  const td = allDayData[rule.tileId];
-  if (!td) return false;
+  const td = allDayData[rule.tileId || rule.sourceTileId];
+  if (!td && rule.type !== "tile-event") return false;
 
   switch(rule.type) {
     case "twoprompt-both":
@@ -529,6 +666,19 @@ function evaluateRule(rule, allDayData) {
     // "Planks or Pushups" box when the slot matching the check-in's window is done.
     case "planks-slot-active":
       return !!(td.planks?.[rule.slot]);
+    // #49 — generic tile-event connector. Resolves event from TILE_EVENTS based
+    // on the source tile's CURRENT type (looked up via tilesById; falls back to
+    // td._type if no layout map is available, e.g. legacy callers).
+    case "tile-event": {
+      const srcData = allDayData[rule.sourceTileId];
+      if (!srcData) return false;
+      const srcType = tilesById?.[rule.sourceTileId]?.type || srcData._type;
+      if (!srcType) return false;
+      const events = TILE_EVENTS[srcType];
+      if (!events) return false;
+      const ev = events.find(e => e.key === rule.event);
+      return ev ? !!ev.evaluate(srcData) : false;
+    }
     default:
       return false;
   }
@@ -711,13 +861,13 @@ function CardShell({ title, accent="#c8a96e", bg, border, children, editMode, on
 
 // ─── TILE RENDERERS ───────────────────────────────────────────────────────────
 
-function TileChecklist({ config, data={}, onChange, editMode, onRemove, onConfig, allDayData }) {
+function TileChecklist({ config, data={}, onChange, editMode, onRemove, onConfig, allDayData, tilesById }) {
   const manualChecks = data.checks || config.items.map(()=>false);
 
   // Evaluate auto-rules for each item
   const autoChecks = config.items.map((item, i) => {
     const rule = config.rules?.[i];
-    return rule ? evaluateRule(rule, allDayData||{}) : false;
+    return rule ? evaluateRule(rule, allDayData||{}, tilesById) : false;
   });
 
   // Effective state: auto OR manual
@@ -1738,6 +1888,46 @@ function TileCounter({ config, data={}, onChange, editMode, onRemove, onConfig }
   );
 }
 
+// #46 — Static list of clickable Notion (or any) quick-links. Pure UI tile, no API.
+// Edit links via Configure. Dynamic Notion-DB version deferred to #50, which will
+// inherit auth from the first ZipRecruiter/Notion-style integration to ship.
+function TileNotionLinks({ config, data={}, onChange, editMode, onRemove, onConfig }) {
+  const accent = config.accent || "#7a6abf";
+  const links = Array.isArray(config.links) ? config.links : [];
+  const visible = links.filter(l => (l?.url||"").trim() && (l?.label||"").trim());
+  return React.createElement(CardShell, {
+    title: config.title || "Quick Links", accent, editMode, onRemove, onConfig
+  },
+    visible.length === 0
+      ? React.createElement("div", { style:{color:"var(--text-faint)",fontSize:"11px",fontStyle:"italic",padding:"4px 0"} },
+          "No links yet — open Configure to add some.")
+      : React.createElement("div", { style:{display:"flex",flexDirection:"column",gap:"4px"} },
+          visible.map((l, i) =>
+            React.createElement("a", {
+              key: i,
+              href: l.url,
+              target: "_blank",
+              rel: "noopener noreferrer",
+              style: {
+                display:"flex", alignItems:"center", gap:"8px",
+                padding:"5px 7px", borderRadius:"3px",
+                color:"var(--text-dim)", textDecoration:"none",
+                fontSize:"12px", lineHeight:1.4,
+                borderLeft:`2px solid ${accent}`,
+                background:"transparent",
+                transition:"background 0.12s"
+              },
+              onMouseEnter: e => { e.currentTarget.style.background = "var(--bg-hover)"; },
+              onMouseLeave: e => { e.currentTarget.style.background = "transparent"; }
+            },
+              React.createElement("span", { style:{color:accent,fontSize:"10px",flexShrink:0,opacity:0.8} }, "↗"),
+              React.createElement("span", { style:{flex:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"} }, l.label)
+            )
+          )
+        )
+  );
+}
+
 // #11 — Music creation daily log. One checkbox ("Made music today") + a free-form note.
 // Both are optional; check + empty note is fine, note + unchecked is fine.
 // When checked, the accent flips green to match the completion pattern used elsewhere.
@@ -1765,11 +1955,11 @@ function TileMusicLog({ config, data={}, onChange, editMode, onRemove, onConfig 
 
 // ─── TILE DISPATCH ────────────────────────────────────────────────────────────
 
-function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDayData, isAuthed, authEpoch, onReauth }) {
+function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDayData, tilesById, isAuthed, authEpoch, onReauth }) {
   const wrapped = d => onChange({ ...d, _type: tile.type });
   const props = { config:tile.config, data, onChange:wrapped, editMode, onRemove, onConfig, allDayData };
   switch(tile.type) {
-    case "checklist":  return React.createElement(TileChecklist, {...props, allDayData});
+    case "checklist":  return React.createElement(TileChecklist, {...props, allDayData, tilesById});
     case "textprompt": return React.createElement(TileTextPrompt, props);
     case "priorities": return React.createElement(TilePriorities, props);
     case "project":    return React.createElement(TileProject, props);
@@ -1788,6 +1978,7 @@ function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDay
     case "quote":      return React.createElement(TileQuote, props);
     case "counter":    return React.createElement(TileCounter, props);
     case "gcal":       return React.createElement(TileGcal, {...props, isAuthed, authEpoch, onReauth});
+    case "notionlinks":return React.createElement(TileNotionLinks, props);
     default: return React.createElement("div", { style:{color:"var(--text-muted)",padding:"12px",fontSize:"11px"} }, `Unknown: ${tile.type}`);
   }
 }
@@ -1833,7 +2024,7 @@ function TileLibrary({ onAdd, columns }) {
 
 // ─── CONFIG MODAL ─────────────────────────────────────────────────────────────
 
-function ConfigModal({ tile, onSave, onClose }) {
+function ConfigModal({ tile, tiles, onSave, onClose }) {
   const [cfg, setCfg] = useState({...tile.config});
   // #41 — when configuring a gcal tile, pull the user's calendar list so calendarId can render as a dropdown.
   const [calendarList, setCalendarList] = useState(null);
@@ -1845,17 +2036,142 @@ function ConfigModal({ tile, onSave, onClose }) {
       .catch(() => { if (alive) setCalendarList([]); });
     return () => { alive = false; };
   }, [tile.type]);
+
+  const inputStyle = {width:"100%",background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"3px",color:"var(--text)",fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"6px 8px"};
+  const tinyBtn   = {background:"var(--bg-card)",border:"1px solid var(--border)",color:"var(--text-dim)",fontFamily:"'DM Mono',monospace",fontSize:"10px",padding:"3px 8px",borderRadius:"3px",cursor:"pointer"};
+  const labelEl   = k => React.createElement("div", { style:{fontSize:"9px",color:"var(--text-muted)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"} }, k);
+
+  // #46 — custom editor for notionlinks.links (array of {label, url}). The default
+  // array editor only handles string arrays; object arrays need their own UI.
+  const renderLinksEditor = (links) => {
+    const arr = Array.isArray(links) ? links : [];
+    const update = next => setCfg({...cfg, links: next});
+    return React.createElement("div", { style:{marginBottom:"10px"} },
+      labelEl("links"),
+      React.createElement("div", { style:{fontSize:"9px",color:"var(--text-faint)",marginBottom:"6px"} }, "Label + URL. Drop a link to remove it."),
+      React.createElement("div", { style:{display:"flex",flexDirection:"column",gap:"6px"} },
+        arr.map((l, i) =>
+          React.createElement("div", { key:i, style:{display:"flex",gap:"4px",alignItems:"center"} },
+            React.createElement("input", {
+              value: l?.label || "",
+              placeholder: "Label",
+              onChange: e => { const n=[...arr]; n[i]={...(n[i]||{}),label:e.target.value}; update(n); },
+              style: {...inputStyle, flex:"0 0 100px"}
+            }),
+            React.createElement("input", {
+              value: l?.url || "",
+              placeholder: "https://...",
+              onChange: e => { const n=[...arr]; n[i]={...(n[i]||{}),url:e.target.value}; update(n); },
+              style: {...inputStyle, flex:1}
+            }),
+            React.createElement("button", {
+              onClick: () => { const n=[...arr]; n.splice(i,1); update(n); },
+              title: "Remove",
+              style: {...tinyBtn, padding:"3px 7px"}
+            }, "✕")
+          )
+        )
+      ),
+      React.createElement("button", {
+        onClick: () => update([...arr, { label:"", url:"" }]),
+        style: {...tinyBtn, marginTop:"6px"}
+      }, "+ Add link")
+    );
+  };
+
+  // #49 — per-item rules editor for checklist tiles. Surfaces TILE_EVENTS as
+  // a label-friendly dropdown. Quantitative legacy rules (pushups-total-gte etc.)
+  // are rendered as readonly tags — users can clear them but not edit numerics
+  // here; threshold rules are configured by editing the layout JSON directly.
+  const renderRulesEditor = () => {
+    if (tile.type !== "checklist") return null;
+    const items = Array.isArray(cfg.items) ? cfg.items : [];
+    const rules = cfg.rules || {};
+    const candidateTiles = (tiles||[]).filter(t => t.id !== tile.id && TILE_EVENTS[t.type] && TILE_EVENTS[t.type].length > 0);
+
+    const setRuleAt = (i, rule) => {
+      const next = { ...rules };
+      if (rule == null) delete next[i]; else next[i] = rule;
+      setCfg({ ...cfg, rules: next });
+    };
+
+    return React.createElement("div", { style:{marginTop:"14px",paddingTop:"12px",borderTop:"1px solid var(--border)"} },
+      React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"10px",color:"var(--accent)",letterSpacing:"1.5px",marginBottom:"4px"} }, "AUTO-TICK RULES"),
+      React.createElement("div", { style:{fontSize:"9px",color:"var(--text-faint)",marginBottom:"10px",lineHeight:1.5} },
+        "Each item can auto-check when something happens on another tile."),
+      items.length === 0
+        ? React.createElement("div", { style:{fontSize:"10px",color:"var(--text-faint)",fontStyle:"italic"} }, "Add items above first.")
+        : React.createElement("div", { style:{display:"flex",flexDirection:"column",gap:"10px"} },
+            items.map((item, i) => {
+              const r = rules[i];
+              const isTileEvent = r?.type === "tile-event";
+              const isLegacy = r && !isTileEvent;
+              const srcTile = isTileEvent ? (candidateTiles.find(t => t.id === r.sourceTileId) || (tiles||[]).find(t => t.id === r.sourceTileId)) : null;
+              const srcEvents = srcTile ? (TILE_EVENTS[srcTile.type] || []) : [];
+
+              const itemLabel = React.createElement("div", { style:{fontSize:"10px",color:"var(--text-dim)",marginBottom:"4px"} },
+                React.createElement("span", { style:{color:"var(--text-muted)",marginRight:"5px"} }, `${i+1}.`),
+                item || React.createElement("span", { style:{fontStyle:"italic",color:"var(--text-faint)"} }, "(empty item)")
+              );
+
+              if (isLegacy) {
+                return React.createElement("div", { key:i },
+                  itemLabel,
+                  React.createElement("div", { style:{display:"flex",alignItems:"center",gap:"6px"} },
+                    React.createElement("span", { style:{fontSize:"9px",color:"var(--accent)",background:"var(--accent-dim)",border:"1px solid var(--accent)",padding:"2px 6px",borderRadius:"3px"} },
+                      `⚡ ${r.type}${r.threshold!=null?` ≥ ${r.threshold}`:""}`),
+                    React.createElement("button", { onClick:()=>setRuleAt(i,null), style:{...tinyBtn,padding:"2px 6px"} }, "Clear")
+                  )
+                );
+              }
+
+              return React.createElement("div", { key:i },
+                itemLabel,
+                React.createElement("div", { style:{display:"flex",gap:"4px"} },
+                  React.createElement("select", {
+                    value: isTileEvent ? r.sourceTileId : "",
+                    onChange: e => {
+                      const newSrcId = e.target.value;
+                      if (!newSrcId) { setRuleAt(i, null); return; }
+                      const newSrc = candidateTiles.find(t => t.id === newSrcId);
+                      const firstEvent = newSrc ? (TILE_EVENTS[newSrc.type]?.[0]?.key || "") : "";
+                      setRuleAt(i, { type:"tile-event", sourceTileId:newSrcId, event:firstEvent });
+                    },
+                    style: {...inputStyle, flex:"0 0 45%"}
+                  },
+                    React.createElement("option", { value:"" }, "— none —"),
+                    candidateTiles.map(t => React.createElement("option", { key:t.id, value:t.id },
+                      `${t.config?.title || t.id} (${TILE_TYPES[t.type]?.label || t.type})`
+                    ))
+                  ),
+                  isTileEvent && React.createElement("select", {
+                    value: r.event || "",
+                    onChange: e => setRuleAt(i, { ...r, event: e.target.value }),
+                    style: {...inputStyle, flex:1}
+                  },
+                    srcEvents.map(ev => React.createElement("option", { key:ev.key, value:ev.key }, ev.label))
+                  )
+                )
+              );
+            })
+          )
+    );
+  };
+
   return React.createElement("div", {
     style:{position:"fixed",inset:0,background:"#000b",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}
   },
-    React.createElement("div", { style:{background:"var(--bg-hover)",border:"1px solid var(--border)",borderRadius:"8px",padding:"22px",width:"360px",maxHeight:"80vh",overflow:"auto"} },
+    React.createElement("div", { style:{background:"var(--bg-hover)",border:"1px solid var(--border)",borderRadius:"8px",padding:"22px",width:"380px",maxHeight:"82vh",overflow:"auto"} },
       React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"12px",color:"var(--accent)",marginBottom:"16px",letterSpacing:"1px"} },
         `Configure: ${TILE_TYPES[tile.type]?.label||tile.type}`
       ),
       Object.entries(cfg).map(([k,v]) => {
         if (k.startsWith("_")) return null;
-        const label = React.createElement("div", { style:{fontSize:"9px",color:"var(--text-muted)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"} }, k);
-        const inputStyle = {width:"100%",background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"3px",color:"var(--text)",fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"6px 8px"};
+        const label = labelEl(k);
+        // #49 — `rules` is rendered by the dedicated rules editor section below, not as a raw field.
+        if (k === "rules") return null;
+        // #46 — special-case the notionlinks `links` field as an object-array editor.
+        if (k === "links" && tile.type === "notionlinks") return React.createElement(React.Fragment, { key:k }, renderLinksEditor(v));
         // #41 — special-case the gcal calendarId field as a dropdown of the user's calendars
         if (k === "calendarId" && tile.type === "gcal") {
           if (calendarList === null) return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
@@ -1924,6 +2240,8 @@ function ConfigModal({ tile, onSave, onClose }) {
             style:{...inputStyle,resize:"none",overflow:"hidden"} }));
         return null;
       }),
+      // #49 — per-item rules editor, only relevant to checklist tiles.
+      renderRulesEditor(),
       React.createElement("div", { style:{display:"flex",gap:"8px",marginTop:"16px"} },
         React.createElement("button", { onClick:()=>onSave(cfg),
           style:{flex:1,background:"var(--accent-dim)",border:"1px solid var(--accent)",color:"var(--accent)",fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"8px",borderRadius:"4px",cursor:"pointer"} },
@@ -1939,27 +2257,65 @@ function ConfigModal({ tile, onSave, onClose }) {
 // ─── HISTORY VIEW ─────────────────────────────────────────────────────────────
 
 function HistoryView({ store }) {
-  const days = Object.entries(store.days).sort((a,b)=>b[0].localeCompare(a[0]));
+  // #48 — newest-first by default; toggle to reverse. The "latest" day is always
+  // identified as the lexicographically-largest key (newest), independent of sort
+  // direction — the badge anchors to the most recent day, not the topmost row.
+  const [sortDir, setSortDir] = useState("desc");
   const [sel, setSel] = useState(null);
-  const layout = store.layouts[store.activeLayout||"default"];
+  const sortedDesc = Object.entries(store.days).sort((a,b)=>b[0].localeCompare(a[0]));
+  const days = sortDir === "desc" ? sortedDesc : [...sortedDesc].reverse();
+  const latestKey = sortedDesc[0]?.[0];
 
-  if (!days.length) return React.createElement("div", {
+  // Union tiles across all layouts so history renders even if the user switched
+  // to a preset that excludes some tiles previously logged.
+  const allTiles = React.useMemo(() => {
+    const map = {};
+    for (const layoutKey of Object.keys(store.layouts || {})) {
+      const layout = store.layouts[layoutKey];
+      for (const col of layout?.columns || []) {
+        for (const t of col.tiles || []) if (!map[t.id]) map[t.id] = t;
+      }
+    }
+    return Object.values(map);
+  }, [store.layouts]);
+
+  if (!sortedDesc.length) return React.createElement("div", {
     style:{textAlign:"center",padding:"80px",color:"var(--text-faint)",fontFamily:"'DM Mono',monospace",fontSize:"12px"}
   }, "No history yet — your completed days will appear here.");
 
   const selData = sel ? store.days[sel] : null;
-  const allTiles = layout?.columns.flatMap(c=>c.tiles)||[];
 
   return React.createElement("div", { style:{maxWidth:"960px",margin:"0 auto",padding:"24px",display:"grid",gridTemplateColumns:"200px 1fr",gap:"16px"} },
     React.createElement("div", null,
-      React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-faint)",marginBottom:"10px"} }, "Past Days"),
-      days.map(([key]) => React.createElement("button", { key, onClick:()=>setSel(key),
-        style:{display:"block",width:"100%",textAlign:"left",background:sel===key?"var(--accent-dim)":"transparent",
-          border:`1px solid ${sel===key?"var(--accent)":"var(--border-dim)"}`,borderRadius:"4px",padding:"8px 10px",
-          marginBottom:"4px",color:sel===key?"var(--accent)":"var(--text-dim)",fontFamily:"'DM Mono',monospace",
-          fontSize:"10px",cursor:"pointer"} },
-        fmtDate(key)
-      ))
+      React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"10px"} },
+        React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-faint)"} }, "Past Days"),
+        // #48 — sort toggle. Clicking flips direction; chevron indicates current.
+        React.createElement("button", {
+          onClick: () => setSortDir(d => d === "desc" ? "asc" : "desc"),
+          title: sortDir === "desc" ? "Showing newest first — click for oldest first" : "Showing oldest first — click for newest first",
+          style:{background:"transparent",border:"none",color:"var(--text-faint)",fontFamily:"'DM Mono',monospace",fontSize:"9px",cursor:"pointer",letterSpacing:"0.5px",padding:"0 2px"}
+        }, sortDir === "desc" ? "↓ newest" : "↑ oldest")
+      ),
+      days.map(([key]) => {
+        const isLatest  = key === latestKey;
+        const isSel     = sel === key;
+        // #48 — most-recent day gets a brighter border + LATEST tag, regardless of sort.
+        const borderCol = isSel ? "var(--accent)" : (isLatest ? "var(--accent)" : "var(--border-dim)");
+        const bgCol     = isSel ? "var(--accent-dim)" : (isLatest ? "var(--accent-dim)" : "transparent");
+        const txtCol    = isSel ? "var(--accent)" : (isLatest ? "var(--accent)" : "var(--text-dim)");
+        return React.createElement("button", { key, onClick:()=>setSel(key),
+          style:{display:"block",width:"100%",textAlign:"left",background:bgCol,
+            border:`1px solid ${borderCol}`,borderRadius:"4px",padding:"8px 10px",
+            marginBottom:"4px",color:txtCol,fontFamily:"'DM Mono',monospace",
+            fontSize:"10px",cursor:"pointer",position:"relative"} },
+          fmtDate(key),
+          isLatest && React.createElement("span", {
+            style:{position:"absolute",top:"3px",right:"4px",fontSize:"7px",letterSpacing:"1px",
+              color:"var(--accent)",background:"var(--bg)",border:"1px solid var(--accent)",
+              padding:"1px 4px",borderRadius:"2px",fontFamily:"'Archivo Black',sans-serif"}
+          }, "LATEST")
+        );
+      })
     ),
     React.createElement("div", null,
       selData ? React.createElement("div", null,
@@ -1999,9 +2355,22 @@ function HistoryView({ store }) {
               React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"12px",marginBottom:"4px"} },
                 [td.planks&&"Planks ✓", td.food&&"Food ✓", td.priorities&&"Priorities ✓"].filter(Boolean).join("  ·  ")
               ),
+              // #27 — show carried/completed next-priorities items so history reflects
+              // the new checkbox state introduced by #43.
+              (td.items||[]).filter(it => (typeof it === "string" ? it : it?.text)).length > 0 && React.createElement("div", {
+                style:{marginTop:"6px",paddingTop:"6px",borderTop:"1px solid var(--border-dim)"}
+              },
+                React.createElement("div", { style:{fontSize:"9px",color:"var(--text-muted)",marginBottom:"3px",letterSpacing:"1px",textTransform:"uppercase"} }, "Next priorities"),
+                (td.items||[]).map((it, i) => {
+                  const obj = typeof it === "string" ? { text: it, done: false } : it;
+                  if (!obj?.text) return null;
+                  return React.createElement("div", { key:i, style:{color:obj.done?"#4a7a4a":"var(--text-dim)",fontSize:"11px",marginBottom:"2px",textDecoration:obj.done?"line-through":"none"} },
+                    `${obj.done?"✓":"○"} ${obj.text}`);
+                })
+              ),
               // #37 — emoji + paired text note side-by-side
               (td.feeling || td.feelingNote) && React.createElement("div", {
-                style:{display:"flex",alignItems:"flex-start",gap:"8px",color:"var(--text-dim)",fontSize:"11px",fontStyle:"italic"}
+                style:{display:"flex",alignItems:"flex-start",gap:"8px",color:"var(--text-dim)",fontSize:"11px",fontStyle:"italic",marginTop:"6px"}
               },
                 td.feeling && React.createElement("span", { style:{fontSize:"16px",fontStyle:"normal",flexShrink:0,lineHeight:1.3} }, td.feeling),
                 td.feelingNote && React.createElement("span", { style:{lineHeight:1.5} }, `"${td.feelingNote}"`)
@@ -2013,6 +2382,11 @@ function HistoryView({ store }) {
                 td.done ? "✓ Made music" : "○ No music logged"
               ),
               td.note && React.createElement("div", { style:{fontStyle:"italic",color:"var(--text-dim)",lineHeight:1.5} }, `"${td.note}"`)
+            ),
+            // #46 — notionlinks history just lists the links that were configured on that day's layout.
+            // Since links live in tile config (not per-day data), we render them as a faded reminder.
+            tile.type === "notionlinks" && React.createElement("div", { style:{fontSize:"11px",color:"var(--text-faint)",fontStyle:"italic"} },
+              `${(tile.config?.links||[]).filter(l=>l?.url).length} link${(tile.config?.links||[]).filter(l=>l?.url).length===1?"":"s"} configured`
             ),
             ["checklist"].includes(tile.type) && React.createElement("div", null,
               tile.config.items?.map((item,i) =>
@@ -2134,12 +2508,40 @@ function App() {
       const keys = Object.keys(s.days).filter(k=>k!==today).sort().reverse();
       const yesterday = keys[0];
       if (yesterday) {
-        const layout = s.layouts[s.activeLayout||"default"];
-        const priTile = layout?.columns.flatMap(c=>c.tiles).find(t=>t.type==="priorities");
+        // #33 — carry-forward should work regardless of which preset is active.
+        // Union tiles across all layouts (deduped by id, first wins) so switching
+        // between Daily / AM Focus / etc. doesn't break the rollover.
+        const tilesById = {};
+        for (const lk of Object.keys(s.layouts || {})) {
+          for (const col of s.layouts[lk]?.columns || []) {
+            for (const t of col.tiles || []) if (!tilesById[t.id]) tilesById[t.id] = t;
+          }
+        }
+
+        // Priorities carry-forward (pre-existing behaviour, now layout-agnostic).
+        const priTile = Object.values(tilesById).find(t => t.type === "priorities");
         if (priTile) {
           const yd = s.days[yesterday]?.[priTile.id];
           const carried = (yd?.priorities||[]).filter(p=>p.text&&!p.done);
           if (carried.length) s.days[today][priTile.id] = { priorities:carried.map(p=>({...p})), added:["","","",""], _type:"priorities", _carried:true };
+        }
+
+        // #27 — check-in next-priorities items get the same _carried treatment as
+        // the priorities tile. Each check-in's undone {text,done} items from yesterday
+        // pre-fill today's same-id check-in. Items get done:false on carry. Items
+        // with empty text are dropped. Legacy string items are upgraded to {text,done}.
+        for (const tile of Object.values(tilesById)) {
+          if (tile.type !== "checkin") continue;
+          if (s.days[today][tile.id]) continue; // user already touched / something else seeded it
+          const yd = s.days[yesterday]?.[tile.id];
+          const ydItems = yd?.items || [];
+          const carriedItems = ydItems
+            .map(it => typeof it === "string" ? { text: it, done: false } : (it || { text: "", done: false }))
+            .filter(it => it.text?.trim() && !it.done)
+            .map(it => ({ text: it.text, done: false }));
+          if (carriedItems.length) {
+            s.days[today][tile.id] = { items: carriedItems, _type: "checkin", _carried: true };
+          }
         }
       }
     }
@@ -2228,6 +2630,75 @@ function App() {
       })};
     }), []);
 
+  // #33 — layout management. Presets live in store.layouts; activeLayout selects one.
+  // Switch / Duplicate / Rename / Delete / New. Keys are derived from names but
+  // stay stable thereafter (rename only changes display name). At least one
+  // layout must remain; deleting the last falls back to seeding `default`.
+  const switchLayout = useCallback((key) => {
+    setStore(s => {
+      if (!s.layouts?.[key]) return s;
+      return { ...s, activeLayout: key };
+    });
+  }, []);
+
+  const keyFromName = (name) => {
+    const base = (name||"").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    return (base || "layout") + "-" + uid().slice(0, 4);
+  };
+
+  const duplicateLayout = useCallback(() => {
+    setStore(s => {
+      const srcKey = s.activeLayout || "default";
+      const src = s.layouts?.[srcKey];
+      if (!src) return s;
+      const proposed = window.prompt("Name for the duplicate:", `${src.name || srcKey} copy`);
+      if (!proposed) return s;
+      const newKey = keyFromName(proposed);
+      const clone = JSON.parse(JSON.stringify(src));
+      clone.name = proposed;
+      return { ...s, layouts: { ...s.layouts, [newKey]: clone }, activeLayout: newKey };
+    });
+  }, []);
+
+  const renameLayout = useCallback(() => {
+    setStore(s => {
+      const key = s.activeLayout || "default";
+      const cur = s.layouts?.[key];
+      if (!cur) return s;
+      const proposed = window.prompt("Rename layout:", cur.name || key);
+      if (!proposed || proposed === cur.name) return s;
+      return { ...s, layouts: { ...s.layouts, [key]: { ...cur, name: proposed } } };
+    });
+  }, []);
+
+  const deleteLayout = useCallback(() => {
+    setStore(s => {
+      const key = s.activeLayout || "default";
+      const keys = Object.keys(s.layouts || {});
+      if (keys.length <= 1) { alert("Can't delete the last layout — create another one first."); return s; }
+      const cur = s.layouts[key];
+      if (!window.confirm(`Delete layout "${cur?.name || key}"?\n\nYour per-day data stays. The tiles in this layout disappear from your sidebar; switch back to another layout to see them.`)) return s;
+      const nextLayouts = { ...s.layouts };
+      delete nextLayouts[key];
+      const nextActive = Object.keys(nextLayouts)[0];
+      return { ...s, layouts: nextLayouts, activeLayout: nextActive };
+    });
+  }, []);
+
+  const newLayout = useCallback(() => {
+    setStore(s => {
+      const proposed = window.prompt("New layout name:", "Untitled");
+      if (!proposed) return s;
+      const newKey = keyFromName(proposed);
+      const empty = { name: proposed, columns: [
+        { id: "col-left",   width: 22, tiles: [] },
+        { id: "col-center", width: 44, tiles: [] },
+        { id: "col-right",  width: 24, tiles: [] },
+      ]};
+      return { ...s, layouts: { ...s.layouts, [newKey]: empty }, activeLayout: newKey };
+    });
+  }, []);
+
   const exportBackup = () => {
     const blob = new Blob([JSON.stringify(store,null,2)],{type:"application/json"});
     const url = URL.createObjectURL(blob);
@@ -2246,8 +2717,18 @@ function App() {
 
   if (!store) return React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"var(--bg)",color:"var(--text-muted)",fontFamily:"monospace"} }, "Loading...");
 
-  const layout = store.layouts[store.activeLayout||"default"];
+  const layoutKey = store.activeLayout || "default";
+  const layout = store.layouts[layoutKey] || store.layouts[Object.keys(store.layouts)[0]];
   const todayData = store.days[todayKey()]||{};
+  // #49 — tilesById is the lookup the tile-event rule type uses to resolve a
+  // source tile's CURRENT type (rather than relying on td._type, which may be
+  // stale across renames). Cheap to compute; recomputed only when layout changes.
+  const tilesById = React.useMemo(() => {
+    const map = {};
+    for (const col of layout?.columns || []) for (const t of col.tiles || []) map[t.id] = t;
+    return map;
+  }, [layout]);
+  const allLayoutEntries = Object.entries(store.layouts || {});
   const d = new Date();
 
   const headerBtn = (label, onClick, active=false, extra={}) => React.createElement("button", {
@@ -2363,6 +2844,22 @@ function App() {
         headerBtn("Today", ()=>setView("today"), view==="today"),
         headerBtn("History", ()=>setView("history"), view==="history"),
         React.createElement("div", { style:{width:"1px",height:"18px",background:"var(--sep)",margin:"0 2px"} }),
+        // #33 — layout switcher. Always visible; in edit mode the manage actions appear next to it.
+        React.createElement("select", {
+          value: layoutKey,
+          onChange: e => switchLayout(e.target.value),
+          title: "Switch layout preset",
+          style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",
+            fontFamily:"'DM Mono',monospace",fontSize:"10px",padding:"4px 8px",borderRadius:"4px",
+            cursor:"pointer",letterSpacing:"0.5px"}
+        },
+          allLayoutEntries.map(([k, l]) => React.createElement("option", { key:k, value:k }, l?.name || k))
+        ),
+        editMode && headerBtn("➕ New",      newLayout,       false, {fontSize:"9px",padding:"4px 8px"}),
+        editMode && headerBtn("⎘ Duplicate", duplicateLayout, false, {fontSize:"9px",padding:"4px 8px"}),
+        editMode && headerBtn("✎ Rename",    renameLayout,    false, {fontSize:"9px",padding:"4px 8px"}),
+        editMode && allLayoutEntries.length > 1 && headerBtn("🗑 Delete", deleteLayout, false, {fontSize:"9px",padding:"4px 8px",color:"#a08070"}),
+        React.createElement("div", { style:{width:"1px",height:"18px",background:"var(--sep)",margin:"0 2px"} }),
         headerBtn(editMode?"✓ Done":"✎ Layout", ()=>setEditMode(e=>!e), editMode,
           editMode?{background:"var(--accent)",color:"var(--bg)",border:"1px solid var(--accent)"}:{}),
         React.createElement("div", { style:{width:"1px",height:"18px",background:"var(--sep)",margin:"0 2px"} }),
@@ -2452,6 +2949,7 @@ function App() {
                   onRemove: () => removeTile(col.id, tile.id),
                   onConfig: () => setConfigTile({tile, colId:col.id}),
                   allDayData: todayData,
+                  tilesById,
                   isAuthed,
                   authEpoch,
                   onReauth: () => initGoogleAuth(true),
@@ -2468,6 +2966,9 @@ function App() {
     // CONFIG MODAL
     configTile && React.createElement(ConfigModal, {
       tile: configTile.tile,
+      // #49 — supply the full list of tiles in the current layout so the rules editor
+      // can populate its source-tile dropdown.
+      tiles: layout.columns.flatMap(c => c.tiles),
       onSave: cfg => { saveTileConfig(configTile.colId, configTile.tile.id, cfg); setConfigTile(null); },
       onClose: () => setConfigTile(null)
     })
