@@ -2508,6 +2508,11 @@ function App() {
       const keys = Object.keys(s.days).filter(k=>k!==today).sort().reverse();
       const yesterday = keys[0];
       if (yesterday) {
+        // ── SHELVED 2026-05-20 — Both carry-forwards (priorities + #27 check-in items) ──
+        // Each new day starts clear. Pull-forward semantics are awaiting revision per owner.
+        // To restore the prior behavior verbatim, remove the /* */ around the block below.
+        // Tickets: pre-existing priorities carry-forward (no ticket) + #27 check-in items.
+        /*
         // #33 — carry-forward should work regardless of which preset is active.
         // Union tiles across all layouts (deduped by id, first wins) so switching
         // between Daily / AM Focus / etc. doesn't break the rollover.
@@ -2543,6 +2548,7 @@ function App() {
             s.days[today][tile.id] = { items: carriedItems, _type: "checkin", _carried: true };
           }
         }
+        */
       }
     }
     setStore(s);
