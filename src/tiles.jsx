@@ -7,6 +7,8 @@ import { uid, todayKey, fmtDate, DAYS, MONTHS } from "./lib/helpers.js";
 import { fetchTodayEvents, fetchCalendarList, fmtEventTime, clearCalendarListCache } from "./lib/calendar.js";
 import { playBeep, playDone } from "./lib/audio.js";
 import { fetchFavorites } from "./lib/notion.js";
+import { msConfigured, msInit, msLogin } from "./lib/msauth.js";
+import { listLists, listTasks, addTask, completeTask } from "./lib/mstodo.js";
 
 // ─── TILE RENDERERS ───────────────────────────────────────────────────────────
 
@@ -1157,6 +1159,102 @@ export function TilePlanner({ config, data={}, onChange, editMode, onRemove, onC
   );
 }
 
+// #34 — Microsoft To Do: combined filtered task list + quick-capture. Signs in
+// with MSAL (popup), calls Graph directly. listId persists to tile config.
+export function TileMsTodo({ config, editMode, onRemove, onConfig, onConfigPatch }) {
+  const accent = config.accent || "#3a6ea5";
+  const [account, setAccount] = useState(null);
+  const [lists, setLists] = useState([]);
+  const [listId, setListId] = useState(config.listId || "");
+  const [tasks, setTasks] = useState([]);
+  const [draft, setDraft] = useState("");
+  const [status, setStatus] = useState("idle"); // idle | loading | error
+  const [err, setErr] = useState("");
+
+  const loadTasks = async (lid) => {
+    if (!lid) return;
+    setStatus("loading"); setErr("");
+    try {
+      const t = await listTasks(lid);
+      setTasks(t.filter(x => x.status !== "completed"));
+      setStatus("idle");
+    } catch (e) { setErr(e.message || "load failed"); setStatus("error"); }
+  };
+  const bootstrap = async (acc) => {
+    setAccount(acc);
+    try {
+      const ls = await listLists();
+      setLists(ls);
+      const lid = config.listId || ls.find(l => l.isDefault)?.id || ls[0]?.id || "";
+      setListId(lid);
+      await loadTasks(lid);
+    } catch (e) { setErr(e.message || "failed"); setStatus("error"); }
+  };
+  useEffect(() => {
+    let alive = true;
+    msInit().then(acc => { if (alive && acc) bootstrap(acc); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const connect = async () => {
+    setErr("");
+    try { const acc = await msLogin(); await bootstrap(acc); }
+    catch (e) { setErr(e.message || "sign-in failed"); setStatus("error"); }
+  };
+  const pickList = async (lid) => {
+    setListId(lid);
+    if (onConfigPatch) onConfigPatch({ listId: lid });
+    await loadTasks(lid);
+  };
+  const add = async () => {
+    const t = draft.trim(); if (!t || !listId) return;
+    setDraft("");
+    try { await addTask(listId, t); await loadTasks(listId); }
+    catch (e) { setErr(e.message || "add failed"); setStatus("error"); }
+  };
+  const complete = async (taskId) => {
+    setTasks(ts => ts.filter(x => x.id !== taskId)); // optimistic
+    try { await completeTask(listId, taskId); } catch { loadTasks(listId); }
+  };
+
+  const faint = { color:"var(--text-faint)", fontSize:"11px", fontStyle:"italic", padding:"4px 0" };
+  return React.createElement(CardShell, { title: config.title || "Microsoft To Do", accent, editMode, onRemove, onConfig },
+    !msConfigured()
+      ? React.createElement("div", { style: faint }, "Microsoft To Do isn't configured.")
+    : !account
+      ? React.createElement("button", { onClick: connect,
+          style:{background:"var(--bg-hover)",border:`1px solid ${accent}`,color:accent,fontFamily:"'DM Mono',monospace",
+            fontSize:"11px",padding:"7px 12px",borderRadius:"4px",cursor:"pointer",width:"100%"} }, "Connect Microsoft")
+    : React.createElement(React.Fragment, null,
+        lists.length > 1 && React.createElement("select", {
+          value: listId, onChange: e => pickList(e.target.value), title: "List",
+          style:{width:"100%",background:"var(--bg)",border:"1px solid var(--border)",color:"var(--text-dim)",
+            fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"5px 7px",borderRadius:"4px",marginBottom:"8px",cursor:"pointer"}
+        }, lists.map(l => React.createElement("option", { key: l.id, value: l.id }, l.name))),
+        React.createElement("div", { style:{display:"flex",gap:"6px",marginBottom:"9px"} },
+          React.createElement("input", { value: draft, placeholder: "Add a task…",
+            onChange: e => setDraft(e.target.value),
+            onKeyDown: e => { if (e.key === "Enter") { e.preventDefault(); add(); } },
+            style:{flex:1,background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"3px",
+              color:"var(--text)",fontFamily:"'DM Mono',monospace",fontSize:"12px",padding:"5px 7px"} }),
+          React.createElement("button", { onClick: add, title: "Add",
+            style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:accent,fontSize:"15px",
+              lineHeight:1,padding:"0 11px",borderRadius:"3px",cursor:"pointer"} }, "+")),
+        status === "loading"
+          ? React.createElement("div", { style: faint }, "Loading…")
+          : tasks.length === 0
+            ? React.createElement("div", { style:{color:"var(--text-muted)",fontSize:"11px",padding:"2px 0"} }, "All clear ✓")
+            : React.createElement("div", { style:{display:"flex",flexDirection:"column",gap:"3px"} },
+                tasks.map(t => React.createElement("label", { key: t.id,
+                  style:{display:"flex",alignItems:"flex-start",gap:"7px",fontSize:"12px",color:"var(--text-dim)",cursor:"pointer",padding:"2px 0",lineHeight:1.4} },
+                  React.createElement("input", { type:"checkbox", onChange: () => complete(t.id),
+                    style:{marginTop:"3px",flexShrink:0,accentColor:accent,width:"13px",height:"13px",cursor:"pointer"} }),
+                  React.createElement("span", null, t.title)))),
+        err && React.createElement("div", { style:{color:"#c97a7a",fontSize:"10px",marginTop:"8px"} }, err)
+      )
+  );
+}
+
 // ─── TILE DISPATCH ────────────────────────────────────────────────────────────
 
 export function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, onConfigPatch, allDayData, tilesById, isAuthed, authEpoch, onReauth }) {
@@ -1185,6 +1283,7 @@ export function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig,
     case "notionlinks":return React.createElement(TileNotionLinks, {...props, isAuthed});
     case "ideas":      return React.createElement(TileIdeas, {...props, onConfigPatch});
     case "planner":    return React.createElement(TilePlanner, props);
+    case "mstodo":     return React.createElement(TileMsTodo, {...props, onConfigPatch});
     default: return React.createElement("div", { style:{color:"var(--text-muted)",padding:"12px",fontSize:"11px"} }, `Unknown: ${tile.type}`);
   }
 }

@@ -25,6 +25,7 @@ export const TILE_TYPES = {
   notionlinks:{ label: "Notion Links",    icon: "⌘" },
   ideas:      { label: "AI Ideas",        icon: "✲" },
   planner:    { label: "AI Planner",      icon: "◇" },
+  mstodo:     { label: "MS To Do",        icon: "✔" },
 };
 
 export function defaultConfig(type) {
@@ -68,6 +69,8 @@ export function defaultConfig(type) {
     ideas:      { title: "Build With AI", accent: "#7a6abf", ideas: [] },
     // #16 — pick today's AI build + break into steps (per-day data).
     planner:    { title: "Today's AI Build", accent: "#7a6abf" },
+    // #34 — Microsoft To Do (MSAL + Graph). listId chosen at runtime, saved to config.
+    mstodo:     { title: "Microsoft To Do", accent: "#3a6ea5" },
   };
   return map[type] || { title: type };
 }
