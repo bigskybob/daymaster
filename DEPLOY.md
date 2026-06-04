@@ -1,14 +1,16 @@
 # Daymaster — build & deploy
 
-## Architecture (post #53 module migration)
+Daymaster is a React SPA (bundled with Vite) served from **GitHub Pages**, plus a
+thin **Cloudflare Worker** API proxy for integrations that browsers can't call
+directly (Notion). The legacy single-file / in-browser-Babel app has been retired.
 
-The app is being migrated from a single in-browser-Babel file to a bundled Vite build.
+## Frontend (`src/`)
 
 ```
 src/
-  config.js              window.DAYMASTER_CONFIG → constants
+  config.js              window.DAYMASTER_CONFIG → constants (CLIENT_ID, WORKER_URL, …)
   main.jsx               entry: mounts <App>
-  App.jsx                app shell: TileLibrary, ConfigModal, HistoryView, SyncDot, App
+  App.jsx                app shell: TileLibrary, ConfigModal, HistoryView, IdeaCaptureModal, App
   ui.jsx                 shared primitives: CardShell, AutoTA, BulletList, CB, EmojiPicker
   ui/FullscreenTimer.jsx countdown timer (planks/dangles)
   tiles.jsx              all Tile* renderers + RenderTile dispatch + AddProjectButton
@@ -21,37 +23,36 @@ src/
     drive.js             Google Drive persistence (revision check + merge)
     calendar.js          read-only Google Calendar
     token.js             OAuth access-token holder
+    notion.js            client for the Worker (sendIdea / fetchFavorites)
     audio.js             WebAudio beeps
-test/                    Vitest specs (store, rules, sync, App mount smoke)
+test/                    Vitest specs (store, rules, sync, worker, App mount smoke)
 ```
 
-## Commands
-
+### Commands
 ```bash
 npm install        # once
-npm test           # Vitest suite (27 tests)
+npm test           # Vitest suite
 npm run build      # Vite production build → docs/ (gitignored)
 npm run dev        # local dev server
 ```
 
-## Current state
+### Deploy (automatic)
+`index.html` is the Vite entry. **Pushing to `main` auto-deploys** via
+`.github/workflows/deploy.yml` (build → tests → publish `docs/` to Pages).
+CI (`.github/workflows/ci.yml`) also runs tests + build on every push/PR.
+GitHub Pages Source is set to **"GitHub Actions"**. Cutover from the legacy build
+is complete — the root `app.js` / CDN-Babel `index.html` are gone.
 
-- **LIVE site** is still served from the repo-root `index.html` + `app.js`
-  (in-browser Babel, React via CDN). These are FROZEN — make new changes in `src/`.
-- The `src/` build is verified (build green, 27 tests green) but **not yet deployed**.
+## Backend — Cloudflare Worker (`worker/`)
 
-## Cutover (one-time, owner action required)
+A tiny API proxy that holds the Notion token server-side, adds CORS, and only
+answers requests carrying a Google access token minted by the Daymaster OAuth
+client. Live at `https://daymaster-api.robkillian.workers.dev`.
 
-1. Decide deploy mechanism — recommended: **GitHub Actions**.
-2. Repo **Settings → Pages → Source → "GitHub Actions"**.
-3. Actions tab → **"Deploy to GitHub Pages" → Run workflow** (it builds, runs tests,
-   builds and deploys `docs/`).
-4. Verify the new site at `https://bigskybob.github.io/daymaster/`.
-5. Once confirmed, delete the legacy root `app.js` and replace the root `index.html`
-   with the built shell (or keep Pages on Actions and ignore the legacy files).
-6. After cutover, change `.github/workflows/deploy.yml` trigger to
-   `on: push: branches: [main]` for automatic deploys.
+- `POST /ideas` → append to the Incoming Ideas Notion page (**#40**, live)
+- `GET /links` → query a favorites DB → `[{label,url}]` (**#50**, endpoint ready)
 
-> Cutover is also what finally ships the **#53 Phase 1 sync data-loss fix** to the
-> live app (it currently lives in `src/lib/sync.js` + the frozen `app.js`, but the
-> deployed bundle is what users run).
+Deployed from a terminal (not Git-connected): `cd worker && npx wrangler deploy`.
+Secrets: `npx wrangler secret put NOTION_TOKEN`. Full runbook + troubleshooting in
+[`worker/README.md`](worker/README.md). The frontend points at it via
+`WORKER_URL` in `index.html`.
