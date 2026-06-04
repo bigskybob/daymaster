@@ -4,6 +4,9 @@ export const CFG = window.DAYMASTER_CONFIG || {};
 export const CLIENT_ID = CFG.GOOGLE_CLIENT_ID || "";
 export const APP_URL = CFG.APP_URL || window.location.origin;
 export const DRIVE_FOLDER = CFG.DRIVE_FOLDER || "Daymaster";
+// Base URL of the Daymaster API proxy Worker (Notion features). Empty until the
+// Worker is deployed; the Notion client no-ops while unset.
+export const WORKER_URL = (CFG.WORKER_URL || "").replace(/\/$/, "");
 export const LOCAL_KEY = "daymaster-v2-local";
 export const THEME_KEY  = "daymaster-theme";
 // #38 — added calendar.readonly for inline Google Calendar widget.

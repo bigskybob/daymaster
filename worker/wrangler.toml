@@ -1,0 +1,14 @@
+name = "daymaster-api"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+# Non-secret config. NOTION_TOKEN is a SECRET — set it with:
+#   wrangler secret put NOTION_TOKEN
+[vars]
+GOOGLE_CLIENT_ID = "784784668482-2dkhosclvu1rak6h6orsr96bcfdbog12.apps.googleusercontent.com"
+OWNER_EMAIL = "robkillian@gmail.com"
+ALLOWED_ORIGIN = "https://bigskybob.github.io"
+INCOMING_IDEAS_PAGE_ID = "35ad876ed61e811bb77adef02e1bcf2b"
+# Set once you have a Notion "favorites" database for #50:
+# FAVORITES_DB_ID = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+# FAVORITES_FILTER = '{"property":"Daymaster Favorite","checkbox":{"equals":true}}'

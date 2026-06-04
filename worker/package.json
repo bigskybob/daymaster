@@ -1,0 +1,13 @@
+{
+  "name": "daymaster-api",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker API proxy for Daymaster (Notion, etc.)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}
