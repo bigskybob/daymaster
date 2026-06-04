@@ -1,16 +1,18 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { readFileSync } from "fs";
 
-// Phase 0 of the architecture migration (#53).
-//
-// The LIVE site is still served from the repo-root index.html + app.js (in-browser
-// Babel, React via CDN). This Vite config is the NEW pipeline being stood up in
-// parallel — it does NOT touch the live files. Build entry is app.build.html so the
-// root index.html (live) is never overwritten. Output goes to /docs; once verified,
-// flip GitHub Pages "Deploy from branch" to the /docs folder to cut over.
+// index.html is the Vite entry; build → /docs, deployed to GitHub Pages via Actions.
+const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url)));
+const BUILD_DATE = new Date().toISOString().slice(0, 10); // #58 — stamped at build time
+
 export default defineConfig({
   base: "/daymaster/",
   plugins: [react()],
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+    __BUILD_DATE__: JSON.stringify(BUILD_DATE),
+  },
   build: {
     outDir: "docs",
     emptyOutDir: true,

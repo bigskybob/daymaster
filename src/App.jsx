@@ -12,6 +12,18 @@ import { CardShell, AutoTA, CB, iconBtnStyle, EmojiPicker } from "./ui.jsx";
 import { TILE_TYPES, defaultConfig } from "./tiles/registry.js";
 import { RenderTile, AddProjectButton } from "./tiles.jsx";
 import { sendIdea, workerConfigured } from "./lib/notion.js";
+import { APP_VERSION, BUILD_DATE } from "./version.js";
+
+// #59 — selectable color themes. Each key has a matching [data-theme="<key>"]
+// CSS-variable block in the global <style>. The header theme picker writes the
+// key to state → persisted to localStorage (THEME_KEY) and set on documentElement.
+const THEMES = [
+  { key: "dark",   name: "🌙 Dark" },
+  { key: "light",  name: "☀️ Light" },
+  { key: "forest", name: "🌲 Forest" },
+  { key: "desert", name: "🏜️ Desert" },
+  { key: "ocean",  name: "🌊 Ocean" },
+];
 
 // #40 — quick-capture modal: type an idea, it appends to the Incoming Ideas
 // Notion page via the proxy Worker. Self-contained state; closes on success.
@@ -526,7 +538,6 @@ function App() {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
-  const toggleTheme = () => setTheme(t => t === "dark" ? "light" : "dark");
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -901,6 +912,75 @@ function App() {
         --sep:          #d8d0c0;
       }
 
+      /* ── Forest theme (#59) ── */
+      [data-theme="forest"] {
+        --bg:           #0d130d;
+        --bg-card:      #141a13;
+        --bg-header:    #0a0f0a;
+        --bg-input:     transparent;
+        --bg-hover:     #182018;
+        --border:       #243024;
+        --border-dim:   #1c261c;
+        --border-head:  #1c261c;
+        --text:         #dde8d8;
+        --text-dim:     #84927e;
+        --text-muted:   #5a6a55;
+        --text-faint:   #455444;
+        --text-xfaint:  #344433;
+        --accent:       #8fc46e;
+        --accent-dim:   #8fc46e22;
+        --scrollbar-track: #101610;
+        --scrollbar-thumb: #2a342a;
+        --input-border: #223022;
+        --sep:          #223022;
+      }
+
+      /* ── Desert theme (#59) ── */
+      [data-theme="desert"] {
+        --bg:           #f2e9d8;
+        --bg-card:      #f8f1e3;
+        --bg-header:    #ebe0cb;
+        --bg-input:     transparent;
+        --bg-hover:     #ede2cf;
+        --border:       #d8c6a4;
+        --border-dim:   #e2d4ba;
+        --border-head:  #ccb892;
+        --text:         #3a2f1e;
+        --text-dim:     #7a6648;
+        --text-muted:   #9a8868;
+        --text-faint:   #b09a78;
+        --text-xfaint:  #c4b090;
+        --accent:       #c2682a;
+        --accent-dim:   #c2682a22;
+        --scrollbar-track: #e8dcc4;
+        --scrollbar-thumb: #cbb894;
+        --input-border: #ccb892;
+        --sep:          #d8c8a8;
+      }
+
+      /* ── Ocean theme (#59) ── */
+      [data-theme="ocean"] {
+        --bg:           #0a1018;
+        --bg-card:      #0f1722;
+        --bg-header:    #070d14;
+        --bg-input:     transparent;
+        --bg-hover:     #131e2b;
+        --border:       #1f2e3f;
+        --border-dim:   #16212d;
+        --border-head:  #16212d;
+        --text:         #dbe7f0;
+        --text-dim:     #7a8a9a;
+        --text-muted:   #56697a;
+        --text-faint:   #445566;
+        --text-xfaint:  #344452;
+        --accent:       #54b0d6;
+        --accent-dim:   #54b0d622;
+        --scrollbar-track: #0c141c;
+        --scrollbar-thumb: #243444;
+        --input-border: #1c2c3c;
+        --sep:          #1c2c3c;
+      }
+
       *{box-sizing:border-box;margin:0;padding:0;}
       input,textarea,button{font-family:inherit;}
       input:focus,textarea:focus{outline:none;}
@@ -976,7 +1056,15 @@ function App() {
         headerBtn(editMode?"✓ Done":"✎ Layout", ()=>setEditMode(e=>!e), editMode,
           editMode?{background:"var(--accent)",color:"var(--bg)",border:"1px solid var(--accent)"}:{}),
         React.createElement("div", { style:{width:"1px",height:"18px",background:"var(--sep)",margin:"0 2px"} }),
-        headerBtn(theme==="dark"?"☀ Light":"☾ Dark", toggleTheme),
+        // #59 — theme picker (replaces the dark/light toggle).
+        React.createElement("select", {
+          value: theme,
+          onChange: e => setTheme(e.target.value),
+          title: "Theme",
+          style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",
+            fontFamily:"'DM Mono',monospace",fontSize:"10px",padding:"4px 8px",borderRadius:"4px",
+            cursor:"pointer",letterSpacing:"0.5px"}
+        }, THEMES.map(t => React.createElement("option", { key:t.key, value:t.key }, t.name))),
         React.createElement("div", { style:{width:"1px",height:"18px",background:"var(--sep)",margin:"0 2px"} }),
         !isAuthed && authState!=="authing" && React.createElement("button", {
           onClick:initGoogleAuth,
@@ -1129,6 +1217,11 @@ function App() {
         })
       )
     ),
+
+    // #58 — build stamp footer (version + build date, injected by Vite at build time).
+    React.createElement("div", {
+      style:{textAlign:"center",padding:"20px 12px 30px",color:"var(--text-xfaint)",fontSize:"9px",letterSpacing:"1px"}
+    }, `Daymaster v${APP_VERSION}${BUILD_DATE ? " · " + BUILD_DATE : ""}`),
 
     // CONFIG MODAL
     ideaCapture && React.createElement(IdeaCaptureModal, { onClose: () => setIdeaCapture(false) }),

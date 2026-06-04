@@ -50,6 +50,7 @@ describe("App (module port) — runtime smoke", () => {
     expect(html.length).toBeGreaterThan(1000);          // rendered a real tree
     expect(html).toContain("Build With AI");            // the new ideas tile rendered
     expect(html).toContain("Mise-en-place");            // a default-layout tile rendered
+    expect(html).toContain("Daymaster v");              // #58 version footer rendered
     const realErrors = errors.filter(e => !/not wrapped in act|Warning:/.test(e));
     expect(realErrors).toEqual([]);                     // no React runtime errors
   });
