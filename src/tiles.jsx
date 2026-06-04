@@ -6,6 +6,7 @@ import { evaluateRule, TILE_EVENTS, checkinIsDone, deriveCheckinSlot, checkinSch
 import { uid, todayKey, fmtDate, DAYS, MONTHS } from "./lib/helpers.js";
 import { fetchTodayEvents, fetchCalendarList, fmtEventTime, clearCalendarListCache } from "./lib/calendar.js";
 import { playBeep, playDone } from "./lib/audio.js";
+import { fetchFavorites } from "./lib/notion.js";
 
 // ─── TILE RENDERERS ───────────────────────────────────────────────────────────
 
@@ -356,7 +357,19 @@ export function TileCheckIn({ config, data={}, onChange, editMode, onRemove, all
         display:"flex",alignItems:"center",justifyContent:"space-between"}
     },
       React.createElement("span", null, `${config.title} Check-In`),
-      isDone && React.createElement("span", { style:{fontSize:"13px"} }, "✓")
+      // #6 — per-block actions: delay 1h (pushes its scheduled time so #35 won't
+      // treat it as stale), dismiss for the day, or restore a dismissed one.
+      !editMode && React.createElement("span", { style:{display:"flex",gap:"7px",alignItems:"center"} },
+        (data._delayMin > 0) && React.createElement("span", {
+          title:"Delayed — click to reset", onClick:()=>onChange({...data, _delayMin:0}),
+          style:{cursor:"pointer",fontSize:"8px",opacity:0.85} }, `+${Math.round(data._delayMin/60)}h`),
+        React.createElement("span", { title:"Delay 1 hour", onClick:()=>onChange({...data, _delayMin:(data._delayMin||0)+60}),
+          style:{cursor:"pointer",fontSize:"11px"} }, "⏲"),
+        data._dismissed
+          ? React.createElement("span", { title:"Restore", onClick:()=>onChange({...data, _dismissed:false}), style:{cursor:"pointer",fontSize:"11px"} }, "↺")
+          : React.createElement("span", { title:"Dismiss for today", onClick:()=>onChange({...data, _dismissed:true}), style:{cursor:"pointer",fontSize:"11px"} }, "✕"),
+        isDone && React.createElement("span", { style:{fontSize:"13px"} }, "✓")
+      )
     ),
     frog && React.createElement("div", {
       style:{padding:"7px 10px",background:"var(--accent-dim)",borderBottom:"1px solid var(--border-dim)",
@@ -968,10 +981,26 @@ export function TileCounter({ config, data={}, onChange, editMode, onRemove, onC
 // #46 — Static list of clickable Notion (or any) quick-links. Pure UI tile, no API.
 // Edit links via Configure. Dynamic Notion-DB version deferred to #50, which will
 // inherit auth from the first ZipRecruiter/Notion-style integration to ship.
-export function TileNotionLinks({ config, data={}, onChange, editMode, onRemove, onConfig }) {
+export function TileNotionLinks({ config, data={}, onChange, editMode, onRemove, onConfig, isAuthed }) {
   const accent = config.accent || "#7a6abf";
-  const links = Array.isArray(config.links) ? config.links : [];
-  const visible = links.filter(l => (l?.url||"").trim() && (l?.label||"").trim());
+  const staticLinks = (Array.isArray(config.links) ? config.links : [])
+    .filter(l => (l?.url||"").trim() && (l?.label||"").trim());
+  // #50 — dynamic mode: pull favorites live from the Worker (Notion DB query) and
+  // merge them in (deduped by URL). No-ops silently when not configured/authed.
+  const [dynamic, setDynamic] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    if (config.dynamic && isAuthed) {
+      fetchFavorites().then(ls => { if (alive) setDynamic(Array.isArray(ls) ? ls : []); }).catch(() => {});
+    } else { setDynamic([]); }
+    return () => { alive = false; };
+  }, [config.dynamic, isAuthed]);
+  const seen = new Set();
+  const visible = [...staticLinks, ...dynamic].filter(l => {
+    const k = (l.url||"").trim();
+    if (!k || seen.has(k)) return false;
+    seen.add(k); return true;
+  });
   return React.createElement(CardShell, {
     title: config.title || "Quick Links", accent, editMode, onRemove, onConfig
   },
@@ -1089,6 +1118,45 @@ export function TileMusicLog({ config, data={}, onChange, editMode, onRemove, on
   );
 }
 
+// #16 — AI project planner: name today's build and break it into checkable steps.
+// Per-day data: { build, steps: [{id,text,done}] }. Pairs with the #15 AI Ideas log.
+export function TilePlanner({ config, data={}, onChange, editMode, onRemove, onConfig }) {
+  const accent = config.accent || "#7a6abf";
+  const steps = Array.isArray(data.steps) ? data.steps : [];
+  const setSteps = next => onChange({ ...data, steps: next });
+  const doneCount = steps.filter(s => s.done).length;
+  const allDone = steps.length > 0 && doneCount === steps.length;
+  return React.createElement(CardShell, { title: config.title || "Today's AI Build", accent: allDone ? "#4a7a4a" : accent, editMode, onRemove, onConfig },
+    React.createElement("input", {
+      value: data.build || "",
+      placeholder: "What are you building today?",
+      onChange: e => onChange({ ...data, build: e.target.value }),
+      style:{width:"100%",background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"4px",
+        color:"var(--text)",fontFamily:"'DM Mono',monospace",fontSize:"13px",padding:"7px 8px",marginBottom:"10px"}
+    }),
+    React.createElement("div", { style:{fontSize:"9px",color:"var(--text-muted)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"6px",display:"flex",justifyContent:"space-between"} },
+      React.createElement("span", null, "Steps"),
+      steps.length > 0 && React.createElement("span", { style: allDone ? {color:"#4a7a4a"} : {} }, `${doneCount}/${steps.length}${allDone ? " ✓" : ""}`)),
+    React.createElement("div", { style:{display:"flex",flexDirection:"column",gap:"4px"} },
+      steps.map((s,i) =>
+        React.createElement("div", { key:s.id||i, style:{display:"flex",alignItems:"flex-start",gap:"6px"} },
+          React.createElement("input", { type:"checkbox", checked:!!s.done,
+            onChange: e => { const n=[...steps]; n[i]={...s,done:e.target.checked}; setSteps(n); },
+            style:{marginTop:"4px",flexShrink:0,accentColor:accent,width:"13px",height:"13px",cursor:"pointer"} }),
+          React.createElement(AutoTA, { value:s.text||"", placeholder:"Step…",
+            onChange: v => { const n=[...steps]; n[i]={...s,text:v}; setSteps(n); },
+            style: s.done ? {textDecoration:"line-through",color:"var(--text-muted)"} : {} }),
+          React.createElement("button", { onClick:()=>setSteps(steps.filter((_,j)=>j!==i)), title:"Remove",
+            style:{background:"none",border:"none",color:"var(--text-xfaint)",cursor:"pointer",fontSize:"12px",padding:"2px",flexShrink:0,marginTop:"2px"} }, "✕")
+        )
+      )
+    ),
+    React.createElement("button", { onClick:()=>setSteps([...steps, { id: uid(), text:"", done:false }]),
+      style:{marginTop:"8px",background:"var(--bg-hover)",border:"1px solid var(--border)",color:accent,
+        fontFamily:"'DM Mono',monospace",fontSize:"10px",padding:"5px 10px",borderRadius:"3px",cursor:"pointer"} }, "+ Step")
+  );
+}
+
 // ─── TILE DISPATCH ────────────────────────────────────────────────────────────
 
 export function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, onConfigPatch, allDayData, tilesById, isAuthed, authEpoch, onReauth }) {
@@ -1114,8 +1182,9 @@ export function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig,
     case "quote":      return React.createElement(TileQuote, props);
     case "counter":    return React.createElement(TileCounter, props);
     case "gcal":       return React.createElement(TileGcal, {...props, isAuthed, authEpoch, onReauth});
-    case "notionlinks":return React.createElement(TileNotionLinks, props);
+    case "notionlinks":return React.createElement(TileNotionLinks, {...props, isAuthed});
     case "ideas":      return React.createElement(TileIdeas, {...props, onConfigPatch});
+    case "planner":    return React.createElement(TilePlanner, props);
     default: return React.createElement("div", { style:{color:"var(--text-muted)",padding:"12px",fontSize:"11px"} }, `Unknown: ${tile.type}`);
   }
 }

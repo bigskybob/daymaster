@@ -24,6 +24,7 @@ export const TILE_TYPES = {
   gcal:       { label: "Google Calendar", icon: "🗓" },
   notionlinks:{ label: "Notion Links",    icon: "⌘" },
   ideas:      { label: "AI Ideas",        icon: "✲" },
+  planner:    { label: "AI Planner",      icon: "◇" },
 };
 
 export function defaultConfig(type) {
@@ -56,7 +57,7 @@ export function defaultConfig(type) {
     gcal:       { title: "Today's Calendar", refreshMinutes: 10, calendarId: "primary" },
     // #46 — static list of clickable Notion (or any) links. Pure UI, no API.
     // Dynamic version (live database queries) deferred to #50.
-    notionlinks:{ title: "Notion Quick Links", accent: "#7a6abf",
+    notionlinks:{ title: "Notion Quick Links", accent: "#7a6abf", dynamic: true,
                   links: [
                     { label: "Project Enhancement Hub", url: "https://www.notion.so/Project-Enhancement-Hub-35ed876ed61e8176b89acca7984123ca" },
                     { label: "Projects Home",           url: "https://www.notion.so/Projects-Home-e482841b692440fc9afcef8ad6f5caf8" },
@@ -65,6 +66,8 @@ export function defaultConfig(type) {
     // #15 — "Build With AI" running idea log. Ideas live in config (layout-level),
     // not per-day data, so the list persists and accumulates across every day.
     ideas:      { title: "Build With AI", accent: "#7a6abf", ideas: [] },
+    // #16 — pick today's AI build + break into steps (per-day data).
+    planner:    { title: "Today's AI Build", accent: "#7a6abf" },
   };
   return map[type] || { title: type };
 }

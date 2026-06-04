@@ -25,6 +25,41 @@ const THEMES = [
   { key: "ocean",  name: "🌊 Ocean" },
 ];
 
+// #2 / #54 — is a tile "complete" for the day? Used by Focus mode to collapse
+// finished sections into a one-line summary. Conservative: types we don't model
+// (e.g. checklist with auto-rules) are never treated as complete, so they stay
+// fully visible. Covers the morning-input + daily-flow tiles that benefit most.
+function tileComplete(tile, d = {}, allDayData = {}) {
+  switch (tile.type) {
+    case "checkin":    return checkinIsDone(tile.config, d, allDayData);
+    case "textprompt": return !!(d.text && d.text.trim());
+    case "twoprompt":  return !!(d.textA?.trim() && d.textB?.trim());
+    case "guidedam":   return !!(d.textA?.trim() && d.textB?.trim() && d.textC?.trim());
+    case "priorities": {
+      const p = (d.priorities || []).filter(x => x.text?.trim());
+      return p.length > 0 && p.every(x => x.done);
+    }
+    case "project": {
+      const items = (d.items || []).map(it => typeof it === "string" ? { text: it, done: false } : (it || {})).filter(x => x.text?.trim());
+      return items.length > 0 && items.every(x => x.done);
+    }
+    case "foodlog": {
+      const logs = d.logs || [];
+      const meals = (tile.config?.meals || []).length || 4;
+      return logs.length > 0 && logs.filter(l => l.done).length >= meals;
+    }
+    case "planner": {
+      const steps = d.steps || [];
+      return steps.length > 0 && steps.every(s => s.done);
+    }
+    default: return false;
+  }
+}
+
+function tileTitle(tile) {
+  return tile.config?.title || tile.config?.titleA || TILE_TYPES[tile.type]?.label || tile.type;
+}
+
 // #40 — quick-capture modal: type an idea, it appends to the Incoming Ideas
 // Notion page via the proxy Worker. Self-contained state; closes on success.
 function IdeaCaptureModal({ onClose }) {
@@ -524,6 +559,8 @@ function App() {
   const [showStale, setShowStale] = useState({});
   const [, setClock]              = useState(0);
   const [ideaCapture, setIdeaCapture] = useState(false); // #40 — Notion idea capture modal
+  const [focusMode, setFocusMode] = useState(false);     // #2/#54 — collapse completed tiles
+  const [focusExpanded, setFocusExpanded] = useState({}); // per-tile manual expand override
   const saveTimer = useRef(null);
   const isAuthed = authState === "authed";
 
@@ -1034,6 +1071,8 @@ function App() {
       React.createElement("div", { className:"dm-header-btns", style:{display:"flex",gap:"6px",alignItems:"center",flexWrap:"wrap"} },
         headerBtn("Today", ()=>setView("today"), view==="today"),
         headerBtn("History", ()=>setView("history"), view==="history"),
+        // #2/#54 — Focus mode: collapse completed sections to one-liners (today view).
+        view==="today" && !editMode && headerBtn(focusMode?"◉ Focus":"◎ Focus", ()=>setFocusMode(f=>!f), focusMode),
         // #40 — idea capture → Notion. Needs the Worker configured and a signed-in Google token.
         workerConfigured() && isAuthed && headerBtn("💡 Idea", ()=>setIdeaCapture(true)),
         React.createElement("div", { style:{width:"1px",height:"18px",background:"var(--sep)",margin:"0 2px"} }),
@@ -1097,14 +1136,19 @@ function App() {
           let orderedTiles = col.tiles, staleTiles = [];
           if (!editMode && checkinIds.length) {
             const meta = new Map(checkinIds.map(t => {
-              const done = checkinIsDone(t.config, todayData[t.id]||{}, todayData);
+              const td = todayData[t.id] || {};
+              const done = checkinIsDone(t.config, td, todayData);
               const sched = checkinScheduleMin(t.config);
-              return [t.id, { done, stale: !done && sched != null && nowMin > sched + 60 }];
+              // #6 — delay pushes the effective scheduled time; dismiss hides outright.
+              const eff = sched != null ? sched + (td._delayMin || 0) : null;
+              const stale = !done && eff != null && nowMin > eff + 60;
+              const hidden = !!td._dismissed || stale;
+              return [t.id, { done, hidden }];
             }));
-            staleTiles = checkinIds.filter(t => meta.get(t.id).stale);
+            staleTiles = checkinIds.filter(t => meta.get(t.id).hidden);
             const grouped = [
-              ...checkinIds.filter(t => !meta.get(t.id).stale && !meta.get(t.id).done),
-              ...checkinIds.filter(t => !meta.get(t.id).stale &&  meta.get(t.id).done),
+              ...checkinIds.filter(t => !meta.get(t.id).hidden && !meta.get(t.id).done),
+              ...checkinIds.filter(t => !meta.get(t.id).hidden &&  meta.get(t.id).done),
             ];
             let placed = false;
             orderedTiles = [];
@@ -1134,6 +1178,10 @@ function App() {
               const isDragging = dragState?.colId===col.id && dragState?.tileIdx===tileIdx;
               const prevCol = colIdx > 0 ? layout.columns[colIdx-1] : null;
               const nextCol = colIdx < layout.columns.length-1 ? layout.columns[colIdx+1] : null;
+              // #2/#54 — in Focus mode, completed tiles collapse to a one-liner (click to expand).
+              const collapsed = !editMode && focusMode
+                && tileComplete(tile, todayData[tile.id]||{}, todayData)
+                && !focusExpanded[tile.id];
               return React.createElement("div", { key:tile.id,
                 draggable:editMode,
                 onDragStart: () => setDragState({colId:col.id, tileIdx, tileId:tile.id}),
@@ -1168,7 +1216,19 @@ function App() {
                       lineHeight:"20px",textAlign:"center",padding:0}
                   }, "→")
                 ),
-                React.createElement(RenderTile, {
+                collapsed
+                  ? React.createElement("div", {
+                      onClick: () => setFocusExpanded(s => ({ ...s, [tile.id]: true })),
+                      title: "Completed — click to expand",
+                      style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"8px",
+                        padding:"9px 12px",background:"var(--bg-card)",border:"1px solid var(--border-dim)",
+                        borderLeft:"3px solid #4a7a4a",borderRadius:"6px",cursor:"pointer",opacity:0.7}
+                    },
+                      React.createElement("span", { style:{display:"flex",alignItems:"center",gap:"8px",fontSize:"10px",color:"var(--text-dim)",letterSpacing:"1px",textTransform:"uppercase"} },
+                        React.createElement("span", { style:{color:"#4a7a4a"} }, "✓"),
+                        tileTitle(tile)),
+                      React.createElement("span", { style:{color:"var(--text-xfaint)",fontSize:"11px"} }, "▸"))
+                  : React.createElement(RenderTile, {
                   tile,
                   data: todayData[tile.id]||{},
                   onChange: data => updateTileData(tile.id, data),
@@ -1191,7 +1251,7 @@ function App() {
                 style:{ width:"100%", background:"transparent", border:"1px dashed var(--border-dim)",
                   color:"var(--text-faint)", fontFamily:"'DM Mono',monospace", fontSize:"10px",
                   letterSpacing:"1px", textTransform:"uppercase", padding:"6px", borderRadius:"4px", cursor:"pointer" }
-              }, `${showStale[col.id] ? "▾ Hide" : "▸ Show"} ${staleTiles.length} earlier check-in${staleTiles.length>1?"s":""}`),
+              }, `${showStale[col.id] ? "▾ Hide" : "▸ Show"} ${staleTiles.length} hidden check-in${staleTiles.length>1?"s":""}`),
               showStale[col.id] && React.createElement("div", {
                 style:{ display:"flex", flexDirection:"column", gap:"12px", marginTop:"12px", opacity:0.65 }
               },
