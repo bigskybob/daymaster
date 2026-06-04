@@ -494,6 +494,7 @@ const TILE_TYPES = {
   quote:      { label: "Daily Quote",      icon: "✦" },
   gcal:       { label: "Google Calendar", icon: "🗓" },
   notionlinks:{ label: "Notion Links",    icon: "⌘" },
+  ideas:      { label: "AI Ideas",        icon: "✲" },
 };
 
 function defaultConfig(type) {
@@ -531,6 +532,9 @@ function defaultConfig(type) {
                     { label: "Notion home", url: "https://www.notion.so" },
                     { label: "Backlog",     url: "https://www.notion.so" },
                   ] },
+    // #15 — "Build With AI" running idea log. Ideas live in config (layout-level),
+    // not per-day data, so the list persists and accumulates across every day.
+    ideas:      { title: "Build With AI", accent: "#7a6abf", ideas: [] },
   };
   return map[type] || { title: type };
 }
@@ -704,6 +708,36 @@ function deriveCheckinSlot(title) {
   if (t === "11:00") return "noon";
   if (t === "2:00")  return "afternoon";
   return "evening";
+}
+
+// #35 — derive a check-in's scheduled time as minutes-from-midnight. The title
+// carries a bare clock ("8:30", "2:00") with no AM/PM, so the planksSlot
+// (am/noon → morning, afternoon/evening → afternoon/PM) disambiguates. Returns
+// null when no time can be parsed, in which case the block is never treated as stale.
+function checkinScheduleMin(config={}) {
+  const m = String(config.title||"").match(/(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  let hour = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  if (hour < 0 || hour > 23 || min < 0 || min > 59) return null;
+  const slot = config.planksSlot || deriveCheckinSlot(config.title);
+  const pm = slot === "afternoon" || slot === "evening";
+  if (pm && hour < 12) hour += 12;       // 2:00 afternoon → 14:00
+  if (!pm && hour === 12) hour = 0;       // 12:xx morning → 00:xx (rare)
+  return hour * 60 + min;
+}
+
+// #35 / #45 — a check-in counts as "done" when any of its tracked dimensions is
+// satisfied: planks (manual or auto from the planks tile via its slot), food,
+// next-priorities, or a feeling emoji / note. Shared by TileCheckIn and the
+// stale-block reordering so both agree on completion.
+function checkinIsDone(config={}, data={}, allDayData={}) {
+  const planksSlot = config.planksSlot || deriveCheckinSlot(config.title);
+  const planksAutoChecked = planksSlot && planksSlot !== "none"
+    && !!(allDayData?.planks?.planks?.[planksSlot]);
+  const planksEffective = !!data.planks || planksAutoChecked;
+  return !!(planksEffective || data.food || data.priorities
+    || data.feeling?.trim() || data.feelingNote?.trim());
 }
 
 
@@ -1171,8 +1205,9 @@ function TileCheckIn({ config, data={}, onChange, editMode, onRemove, allDayData
     && !!(allDayData?.planks?.planks?.[planksSlot]);
   const planksEffective = !!data.planks || planksAutoChecked;
 
-  // #37 — feeling (emoji) and feelingNote (text) are paired and either may be set
-  const isDone = planksEffective||data.food||data.priorities||data.feeling?.trim()||data.feelingNote?.trim();
+  // #37 — feeling (emoji) and feelingNote (text) are paired and either may be set.
+  // Completion logic lives in the shared checkinIsDone so #35's reordering agrees.
+  const isDone = checkinIsDone(config, data, allDayData);
 
   // Frog = priority #1 (index 0) only
   const priData = Object.values(allDayData||{}).find(t=>t?._type==="priorities");
@@ -1928,6 +1963,65 @@ function TileNotionLinks({ config, data={}, onChange, editMode, onRemove, onConf
   );
 }
 
+// #15 — "Build With AI" idea list: a persistent running log of AI project ideas.
+// Unlike most tiles, the list lives in `config.ideas` (layout-level) rather than
+// per-day data, so it carries forward and accumulates across days. Add via the
+// input, check an idea to mark it built (strikethrough + demoted to the bottom),
+// ✕ to drop it. Persisted through onConfigPatch, which merges into the tile config.
+function TileIdeas({ config, editMode, onRemove, onConfig, onConfigPatch }) {
+  const accent = config.accent || "#7a6abf";
+  const ideas = Array.isArray(config.ideas) ? config.ideas : [];
+  const [draft, setDraft] = useState("");
+  const patch = next => onConfigPatch && onConfigPatch({ ideas: next });
+
+  const add = () => {
+    const text = draft.trim();
+    if (!text) return;
+    patch([...ideas, { id: uid(), text, done: false }]);
+    setDraft("");
+  };
+  const setIdea = (id, fields) => patch(ideas.map(it => it.id === id ? { ...it, ...fields } : it));
+  const remove  = id => patch(ideas.filter(it => it.id !== id));
+
+  // active first, built (done) demoted to the bottom — the running-log feel.
+  const ordered = [...ideas.filter(it => !it.done), ...ideas.filter(it => it.done)];
+
+  return React.createElement(CardShell, { title: config.title || "Build With AI", accent, editMode, onRemove, onConfig },
+    React.createElement("div", { style:{display:"flex",gap:"6px",marginBottom:"9px"} },
+      React.createElement("input", {
+        value: draft,
+        placeholder: "New AI build idea…",
+        onChange: e => setDraft(e.target.value),
+        onKeyDown: e => { if (e.key === "Enter") { e.preventDefault(); add(); } },
+        style:{flex:1,background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"3px",
+          color:"var(--text)",fontFamily:"'DM Mono',monospace",fontSize:"12px",padding:"5px 7px"}
+      }),
+      React.createElement("button", { onClick: add, title:"Add idea",
+        style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:accent,
+          fontSize:"15px",lineHeight:1,padding:"0 11px",borderRadius:"3px",cursor:"pointer"} }, "+")
+    ),
+    ordered.length === 0
+      ? React.createElement("div", { style:{color:"var(--text-faint)",fontSize:"11px",fontStyle:"italic",padding:"2px 0"} },
+          "No ideas yet — capture one above.")
+      : React.createElement("div", { style:{display:"flex",flexDirection:"column",gap:"4px"} },
+          ordered.map(it =>
+            React.createElement("div", { key: it.id, style:{display:"flex",alignItems:"flex-start",gap:"7px"} },
+              React.createElement("input", { type:"checkbox", checked:!!it.done,
+                title: it.done ? "Mark as not built" : "Mark as built",
+                onChange: e => setIdea(it.id, { done: e.target.checked }),
+                style:{marginTop:"4px",flexShrink:0,accentColor:accent,width:"13px",height:"13px",cursor:"pointer"} }),
+              React.createElement(AutoTA, { value: it.text || "", placeholder:"…",
+                onChange: v => setIdea(it.id, { text: v }),
+                style: it.done ? {textDecoration:"line-through",color:"var(--text-muted)"} : {} }),
+              React.createElement("button", { onClick: () => remove(it.id), title:"Remove",
+                style:{background:"none",border:"none",color:"var(--text-xfaint)",cursor:"pointer",
+                  fontSize:"12px",padding:"2px",flexShrink:0,marginTop:"2px"} }, "✕")
+            )
+          )
+        )
+  );
+}
+
 // #11 — Music creation daily log. One checkbox ("Made music today") + a free-form note.
 // Both are optional; check + empty note is fine, note + unchecked is fine.
 // When checked, the accent flips green to match the completion pattern used elsewhere.
@@ -1955,7 +2049,7 @@ function TileMusicLog({ config, data={}, onChange, editMode, onRemove, onConfig 
 
 // ─── TILE DISPATCH ────────────────────────────────────────────────────────────
 
-function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDayData, tilesById, isAuthed, authEpoch, onReauth }) {
+function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, onConfigPatch, allDayData, tilesById, isAuthed, authEpoch, onReauth }) {
   const wrapped = d => onChange({ ...d, _type: tile.type });
   const props = { config:tile.config, data, onChange:wrapped, editMode, onRemove, onConfig, allDayData };
   switch(tile.type) {
@@ -1979,6 +2073,7 @@ function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, allDay
     case "counter":    return React.createElement(TileCounter, props);
     case "gcal":       return React.createElement(TileGcal, {...props, isAuthed, authEpoch, onReauth});
     case "notionlinks":return React.createElement(TileNotionLinks, props);
+    case "ideas":      return React.createElement(TileIdeas, {...props, onConfigPatch});
     default: return React.createElement("div", { style:{color:"var(--text-muted)",padding:"12px",fontSize:"11px"} }, `Unknown: ${tile.type}`);
   }
 }
@@ -2424,8 +2519,18 @@ function App() {
   const [configTile, setConfigTile] = useState(null);
   const [dragState, setDragState] = useState(null);
   const [theme, setTheme]         = useState(() => localStorage.getItem(THEME_KEY) || "dark");
+  // #35 — per-column reveal of past-due check-in blocks, plus a minute ticker so
+  // staleness re-evaluates as the day rolls on without needing a user interaction.
+  const [showStale, setShowStale] = useState({});
+  const [, setClock]              = useState(0);
   const saveTimer = useRef(null);
   const isAuthed = authState === "authed";
+
+  // #35 — re-render every minute so check-in blocks become stale on schedule.
+  useEffect(() => {
+    const id = setInterval(() => setClock(c => c + 1), 60000);
+    return () => clearInterval(id);
+  }, []);
 
   // ── Theme ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -2894,8 +2999,34 @@ function App() {
       editMode && React.createElement(TileLibrary, { onAdd:addTile, columns:layout.columns }),
 
       React.createElement("div", { className:"dm-grid", style:{display:"grid",gridTemplateColumns:layout.columns.map(c=>`${c.width}fr`).join(" "),gap:"14px"} },
-        layout.columns.map((col, colIdx) =>
-          React.createElement("div", { key:col.id, className:`dm-col-${col.id.replace("col-","")}`,
+        layout.columns.map((col, colIdx) => {
+          // #35 — view-mode reorder/hide of check-in tiles. Completed blocks sink to
+          // the bottom of their group; incomplete blocks more than an hour past their
+          // scheduled time are pulled out behind a reveal toggle so the morning's
+          // missed check-ins don't clutter the active flow. Edit mode is left intact
+          // so drag/index logic keeps operating on the real layout order.
+          const nowMin = (() => { const d = new Date(); return d.getHours()*60 + d.getMinutes(); })();
+          const checkinIds = col.tiles.filter(t => t.type === "checkin");
+          let orderedTiles = col.tiles, staleTiles = [];
+          if (!editMode && checkinIds.length) {
+            const meta = new Map(checkinIds.map(t => {
+              const done = checkinIsDone(t.config, todayData[t.id]||{}, todayData);
+              const sched = checkinScheduleMin(t.config);
+              return [t.id, { done, stale: !done && sched != null && nowMin > sched + 60 }];
+            }));
+            staleTiles = checkinIds.filter(t => meta.get(t.id).stale);
+            const grouped = [
+              ...checkinIds.filter(t => !meta.get(t.id).stale && !meta.get(t.id).done),
+              ...checkinIds.filter(t => !meta.get(t.id).stale &&  meta.get(t.id).done),
+            ];
+            let placed = false;
+            orderedTiles = [];
+            for (const t of col.tiles) {
+              if (t.type === "checkin") { if (!placed) { orderedTiles.push(...grouped); placed = true; } }
+              else orderedTiles.push(t);
+            }
+          }
+          return React.createElement("div", { key:col.id, className:`dm-col-${col.id.replace("col-","")}`,
             style:{display:"flex",flexDirection:"column",gap:"12px"},
             onDragOver: e => e.preventDefault(),
             onDrop: e => {
@@ -2912,7 +3043,7 @@ function App() {
             }
           },
             editMode && React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"8px",letterSpacing:"3px",textTransform:"uppercase",color:"var(--text-xfaint)",textAlign:"center",padding:"4px",border:"1px dashed var(--border-dim)",borderRadius:"4px"} }, col.id),
-            col.tiles.map((tile, tileIdx) => {
+            orderedTiles.map((tile, tileIdx) => {
               const isDragging = dragState?.colId===col.id && dragState?.tileIdx===tileIdx;
               const prevCol = colIdx > 0 ? layout.columns[colIdx-1] : null;
               const nextCol = colIdx < layout.columns.length-1 ? layout.columns[colIdx+1] : null;
@@ -2957,6 +3088,7 @@ function App() {
                   editMode,
                   onRemove: () => removeTile(col.id, tile.id),
                   onConfig: () => setConfigTile({tile, colId:col.id}),
+                  onConfigPatch: patch => saveTileConfig(col.id, tile.id, {...tile.config, ...patch}),
                   allDayData: todayData,
                   tilesById,
                   isAuthed,
@@ -2965,10 +3097,37 @@ function App() {
                 })
               );
             }),
+            // #35 — past-due, still-incomplete check-ins, tucked behind a reveal toggle.
+            (!editMode && staleTiles.length > 0) && React.createElement("div", { key:`stale-${col.id}` },
+              React.createElement("button", {
+                onClick: () => setShowStale(s => ({ ...s, [col.id]: !s[col.id] })),
+                style:{ width:"100%", background:"transparent", border:"1px dashed var(--border-dim)",
+                  color:"var(--text-faint)", fontFamily:"'DM Mono',monospace", fontSize:"10px",
+                  letterSpacing:"1px", textTransform:"uppercase", padding:"6px", borderRadius:"4px", cursor:"pointer" }
+              }, `${showStale[col.id] ? "▾ Hide" : "▸ Show"} ${staleTiles.length} earlier check-in${staleTiles.length>1?"s":""}`),
+              showStale[col.id] && React.createElement("div", {
+                style:{ display:"flex", flexDirection:"column", gap:"12px", marginTop:"12px", opacity:0.65 }
+              },
+                staleTiles.map(tile =>
+                  React.createElement("div", { key:tile.id, style:{position:"relative"} },
+                    React.createElement(RenderTile, {
+                      tile, data: todayData[tile.id]||{},
+                      onChange: data => updateTileData(tile.id, data),
+                      editMode: false,
+                      onRemove: () => removeTile(col.id, tile.id),
+                      onConfig: () => setConfigTile({tile, colId:col.id}),
+                      onConfigPatch: patch => saveTileConfig(col.id, tile.id, {...tile.config, ...patch}),
+                      allDayData: todayData, tilesById, isAuthed, authEpoch,
+                      onReauth: () => initGoogleAuth(true),
+                    })
+                  )
+                )
+              )
+            ),
             col.id === "col-left" && !editMode &&
               React.createElement(AddProjectButton, { colId: col.id, onAdd: addTile })
           )
-        )
+        })
       )
     ),
 
