@@ -58,8 +58,9 @@ export function defaultConfig(type) {
     // Dynamic version (live database queries) deferred to #50.
     notionlinks:{ title: "Notion Quick Links", accent: "#7a6abf",
                   links: [
-                    { label: "Notion home", url: "https://www.notion.so" },
-                    { label: "Backlog",     url: "https://www.notion.so" },
+                    { label: "Project Enhancement Hub", url: "https://www.notion.so/Project-Enhancement-Hub-35ed876ed61e8176b89acca7984123ca" },
+                    { label: "Projects Home",           url: "https://www.notion.so/Projects-Home-e482841b692440fc9afcef8ad6f5caf8" },
+                    { label: "Applications (Job Lab)",  url: "https://www.notion.so/d16c804a265b4834b7af42ab91bb0c1d?v=4faf230febe3461a91bd4905723d077e" },
                   ] },
     // #15 — "Build With AI" running idea log. Ideas live in config (layout-level),
     // not per-day data, so the list persists and accumulates across every day.
