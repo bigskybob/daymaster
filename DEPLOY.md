@@ -31,7 +31,7 @@ test/                    Vitest specs (store, rules, sync, App mount smoke)
 npm install        # once
 npm test           # Vitest suite (27 tests)
 npm run build      # Vite production build → docs/ (gitignored)
-npm run dev        # local dev server (uses app.build.html)
+npm run dev        # local dev server
 ```
 
 ## Current state
@@ -45,7 +45,7 @@ npm run dev        # local dev server (uses app.build.html)
 1. Decide deploy mechanism — recommended: **GitHub Actions**.
 2. Repo **Settings → Pages → Source → "GitHub Actions"**.
 3. Actions tab → **"Deploy to GitHub Pages" → Run workflow** (it builds, runs tests,
-   renames `app.build.html` → `index.html`, and deploys `docs/`).
+   builds and deploys `docs/`).
 4. Verify the new site at `https://bigskybob.github.io/daymaster/`.
 5. Once confirmed, delete the legacy root `app.js` and replace the root `index.html`
    with the built shell (or keep Pages on Actions and ignore the legacy files).
