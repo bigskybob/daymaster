@@ -1,12 +1,11 @@
 name: Deploy to GitHub Pages
 
-# CUTOVER CONTROL — this is intentionally manual (workflow_dispatch only) and is
-# INERT until two one-time owner actions happen:
-#   1. Repo Settings → Pages → Source → "GitHub Actions"
-#   2. Run this workflow (Actions tab → "Deploy to GitHub Pages" → Run workflow)
-# Until then the live site keeps being served from the repo-root index.html + app.js.
-# After cutover, change the trigger to `on: push: branches: [main]` for auto-deploy.
+# Active deploy (post-cutover, 2026-06-04). Builds the Vite app and publishes it
+# to GitHub Pages on every push to main, plus a manual trigger. Requires repo
+# Settings → Pages → Source = "GitHub Actions".
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
