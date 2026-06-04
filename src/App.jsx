@@ -18,6 +18,7 @@ import { sendIdea, workerConfigured } from "./lib/notion.js";
 function IdeaCaptureModal({ onClose }) {
   const [text, setText] = useState("");
   const [status, setStatus] = useState("idle"); // idle | sending | sent | error
+  const [err, setErr] = useState("");
   const send = async () => {
     const t = text.trim();
     if (!t || status === "sending") return;
@@ -27,6 +28,7 @@ function IdeaCaptureModal({ onClose }) {
       setStatus("sent");
       setTimeout(onClose, 700);
     } catch (e) {
+      setErr((e && e.message) || "failed");
       setStatus("error");
     }
   };
@@ -49,7 +51,7 @@ function IdeaCaptureModal({ onClose }) {
       }),
       React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:"12px",gap:"10px"} },
         React.createElement("span", { style:{fontSize:"10px",color: status==="error"?"#c97a7a":"var(--text-muted)"} },
-          status==="sending" ? "Sending…" : status==="sent" ? "Sent ✓" : status==="error" ? "Failed — try again" : "⌘↵ to send"),
+          status==="sending" ? "Sending…" : status==="sent" ? "Sent ✓" : status==="error" ? `Failed: ${err}` : "⌘↵ to send"),
         React.createElement("div", { style:{display:"flex",gap:"8px"} },
           React.createElement("button", { onClick:onClose,
             style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"6px 12px",borderRadius:"4px",cursor:"pointer"} }, "Cancel"),

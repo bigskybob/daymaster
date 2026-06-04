@@ -17,7 +17,16 @@ export async function sendIdea(text) {
     headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   });
-  if (!res.ok) throw new Error(`Idea send failed (${res.status})`);
+  if (!res.ok) {
+    let why = `${res.status}`;
+    try {
+      const j = await res.json();
+      if (j.error === "unauthorized") why = "not authorized (re-connect Drive)";
+      else if (j.error === "notion") why = `Notion ${j.detail?.status || ""} ${j.detail?.code || j.detail?.message || ""}`.trim();
+      else if (j.error) why = j.error;
+    } catch {}
+    throw new Error(why);
+  }
   return res.json();
 }
 
