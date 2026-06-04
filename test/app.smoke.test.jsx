@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "../src/app.jsx";
+import { App } from "../src/App.jsx";
 import { emptyStore } from "../src/lib/store.js";
 
 // Runtime safety net for the Phase 2 module port (#53): mount the real App from

@@ -1,0 +1,48 @@
+name: Deploy to GitHub Pages
+
+# CUTOVER CONTROL — this is intentionally manual (workflow_dispatch only) and is
+# INERT until two one-time owner actions happen:
+#   1. Repo Settings → Pages → Source → "GitHub Actions"
+#   2. Run this workflow (Actions tab → "Deploy to GitHub Pages" → Run workflow)
+# Until then the live site keeps being served from the repo-root index.html + app.js.
+# After cutover, change the trigger to `on: push: branches: [main]` for auto-deploy.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      # The Vite entry is app.build.html so it never clobbers the legacy root
+      # index.html. Pages wants index.html, so rename in the artifact.
+      - run: mv docs/app.build.html docs/index.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
