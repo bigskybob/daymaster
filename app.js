@@ -39,7 +39,39 @@ function uid() { return Math.random().toString(36).slice(2,9); }
 let _token = null;
 let _folderId = null;
 let _fileId = null;
+// #53 Phase 1 — last-known Drive revision, used to detect concurrent writes from
+// another device before we overwrite (see saveToDrive / mergeStores below).
+let _remoteRevision = null;
 const FILENAME = "daymaster-data.json";
+
+// #53 Phase 1 — conflict-safe merge for the single Drive JSON store. Canonical,
+// unit-tested copy lives in src/lib/sync.js; this inline copy keeps the live
+// (CDN-Babel) app.js working until the build cutover. Keep the two in sync.
+// Days present on only one side are kept; a contested day is resolved by the
+// newer __mtime (tie → local); layouts come from the newer __savedAt.
+function mergeStores(local, remote) {
+  if (!remote) return local;
+  if (!local) return remote;
+  const localSaved = local.__savedAt || 0;
+  const remoteSaved = remote.__savedAt || 0;
+  const layoutWinner = remoteSaved > localSaved ? remote : local;
+  const days = {};
+  const allDates = new Set([...Object.keys(local.days||{}), ...Object.keys(remote.days||{})]);
+  for (const date of allDates) {
+    const l = local.days?.[date];
+    const r = remote.days?.[date];
+    if (l && !r) days[date] = l;
+    else if (r && !l) days[date] = r;
+    else days[date] = ((r.__mtime||0) > (l.__mtime||0)) ? r : l;
+  }
+  return {
+    version: Math.max(local.version||0, remote.version||0),
+    activeLayout: layoutWinner.activeLayout,
+    layouts: layoutWinner.layouts,
+    days,
+    __savedAt: Math.max(localSaved, remoteSaved),
+  };
+}
 
 function getToken() { return _token; }
 
@@ -94,38 +126,63 @@ async function loadFromDrive() {
   const folderId = await ensureFolder();
   const fileId = await findDataFile(folderId);
   if (!fileId) return null;
+  // #53 Phase 1 — record the revision we're loading so a later save can detect
+  // whether another device wrote in the meantime.
+  try {
+    const meta = await driveRequest(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=headRevisionId`);
+    _remoteRevision = (await meta.json()).headRevisionId || null;
+  } catch { _remoteRevision = null; }
   const res = await driveRequest(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`);
   const text = await res.text();
   return JSON.parse(text);
 }
 
+// #53 Phase 1 — returns a merged store when a remote conflict was reconciled in
+// (so the caller can adopt it), otherwise null. Stamps __savedAt on the payload
+// and tracks the resulting Drive revision.
 async function saveToDrive(store) {
   const folderId = await ensureFolder();
-  const json = JSON.stringify(store, null, 2);
-  const blob = new Blob([json], { type: "application/json" });
+  let payload = { ...store, __savedAt: Date.now() };
+  let merged = null;
 
   if (_fileId) {
-    // Update existing file
-    const form = new FormData();
-    form.append("file", blob);
-    await driveRequest(`https://www.googleapis.com/upload/drive/v3/files/${_fileId}?uploadType=media`, {
+    // Detect a concurrent write from another device before clobbering it.
+    try {
+      const cur = await driveRequest(`https://www.googleapis.com/drive/v3/files/${_fileId}?fields=headRevisionId`);
+      const curRev = (await cur.json()).headRevisionId || null;
+      if (_remoteRevision && curRev && curRev !== _remoteRevision) {
+        const res = await driveRequest(`https://www.googleapis.com/drive/v3/files/${_fileId}?alt=media`);
+        const remote = JSON.parse(await res.text());
+        payload = mergeStores(payload, remote);
+        merged = payload;
+      }
+    } catch (e) {
+      // If the revision check fails, fall through to a plain save rather than
+      // block persistence entirely — losing the merge is better than losing data.
+      console.warn("Drive revision check failed; saving without merge", e);
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const patched = await driveRequest(`https://www.googleapis.com/upload/drive/v3/files/${_fileId}?uploadType=media&fields=headRevisionId`, {
       method: "PATCH",
       body: blob,
       headers: { "Content-Type": "application/json" }
     });
+    try { _remoteRevision = (await patched.json()).headRevisionId || _remoteRevision; } catch {}
   } else {
     // Create new file with metadata
     const meta = { name: FILENAME, parents: [folderId] };
     const form = new FormData();
     form.append("metadata", new Blob([JSON.stringify(meta)], { type: "application/json" }));
-    form.append("file", blob);
-    const res = await driveRequest("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id", {
+    form.append("file", new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
+    const res = await driveRequest("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,headRevisionId", {
       method: "POST",
       body: form
     });
     const created = await res.json();
     _fileId = created.id;
+    _remoteRevision = created.headRevisionId || null;
   }
+  return merged;
 }
 
 // ─── GOOGLE CALENDAR LAYER (#38) ──────────────────────────────────────────────
@@ -2587,19 +2644,21 @@ function App() {
   // ── Load ──────────────────────────────────────────────────────────────────
 
   async function syncDown() {
-    // Try Drive first, fall back to localStorage
+    // #53 Phase 1 — merge Drive with any locally-cached store rather than letting
+    // Drive blindly overwrite unsynced local edits made before auth completed.
+    let localStore = null;
+    try { const raw = localStorage.getItem(LOCAL_KEY); if (raw) localStore = JSON.parse(raw); } catch {}
     try {
       const driveData = await loadFromDrive();
       if (driveData) {
-        applyStore(driveData);
+        applyStore(localStore ? mergeStores(localStore, driveData) : driveData);
         return;
       }
     } catch(e) {
       console.warn("Drive load failed, using local", e);
     }
     // Fall back to localStorage
-    const local = localStorage.getItem(LOCAL_KEY);
-    applyStore(local ? JSON.parse(local) : emptyStore());
+    applyStore(localStore || emptyStore());
   }
 
   function applyStore(s) {
@@ -2689,7 +2748,10 @@ function App() {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       try {
-        await saveToDrive(store);
+        // #53 Phase 1 — if the save reconciled a concurrent edit from another
+        // device, adopt the merged result so this device shows the union too.
+        const merged = await saveToDrive(store);
+        if (merged) setStore(merged);
         setSyncStatus("saved");
         setTimeout(()=>setSyncStatus("idle"), 3000);
       } catch(e) {
@@ -2702,7 +2764,10 @@ function App() {
   // ── Store mutations ───────────────────────────────────────────────────────
 
   const updateTileData = useCallback((tileId, data) => {
-    setStore(s => ({ ...s, days: { ...s.days, [todayKey()]: { ...s.days[todayKey()], [tileId]: data } } }));
+    // #53 Phase 1 — stamp the day's __mtime so cross-device merges can pick the
+    // freshest copy of a contested day.
+    const k = todayKey();
+    setStore(s => ({ ...s, days: { ...s.days, [k]: { ...s.days[k], [tileId]: data, __mtime: Date.now() } } }));
   }, []);
 
   const mutateLayout = useCallback(fn => {
