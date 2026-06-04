@@ -108,11 +108,14 @@ export function TilePriorities({ config, data={}, onChange, editMode, onRemove, 
 
 export function TileProject({ config, data={}, onChange, editMode, onRemove, onConfig }) {
   const count = config.count||4;
-  const items = data.items || Array(count).fill("");
+  // #52 — project rows are completable: {text, done}. Lazy-convert legacy string[].
+  const rawItems = data.items || Array(count).fill("");
+  const items = rawItems.map(it => typeof it === "string" ? { text: it, done: false } : (it || { text:"", done:false }));
   const [localTitle, setLocalTitle] = useState(data.title||config.title||"Project");
   const isOpen = data._open !== undefined ? data._open : (config.defaultOpen !== false);
-  const hasContent = items.some(x=>x);
-  const doneCount = items.filter(x=>x).length;
+  const hasContent = items.some(x=>x.text?.trim());
+  const filledCount = items.filter(x=>x.text?.trim()).length;
+  const doneCount = items.filter(x=>x.done).length;
 
   const header = React.createElement("div", {
     style:{display:"flex",alignItems:"center",gap:"8px",cursor:"pointer",userSelect:"none"},
@@ -135,7 +138,7 @@ export function TileProject({ config, data={}, onChange, editMode, onRemove, onC
     !isOpen && hasContent && React.createElement("span", {
       style:{fontSize:"9px",color:"#4a7a4a",background:"#1a2a1a",border:"1px solid #2a4a2a",
         borderRadius:"3px",padding:"1px 6px"}
-    }, `${doneCount} items`),
+    }, `${doneCount}/${filledCount} done`),
     editMode && React.createElement("div", { style:{display:"flex",gap:"3px",marginLeft:"auto"}, onClick:e=>e.stopPropagation() },
       React.createElement("button", { onClick:onConfig, style:{background:"var(--bg-hover)",border:"none",color:"var(--text-dim)",width:"20px",height:"20px",borderRadius:"3px",cursor:"pointer",fontSize:"10px"} }, "⚙"),
       React.createElement("button", { onClick:onRemove, style:{background:"#5a1a1a",border:"none",color:"#aaa",width:"20px",height:"20px",borderRadius:"3px",cursor:"pointer",fontSize:"10px"} }, "✕")
@@ -157,7 +160,19 @@ export function TileProject({ config, data={}, onChange, editMode, onRemove, onC
           color:"var(--accent)",fontFamily:"'Archivo Black',sans-serif",fontSize:"11px",letterSpacing:"1.5px",
           textTransform:"uppercase",width:"100%",padding:"3px 0",marginBottom:"10px"}
       }),
-      React.createElement(BulletList, { items, onChange:v=>onChange({...data,items:v}), placeholder:"Task..." })
+      // #52 — completable rows: checkbox + auto-expanding text, persisting {text,done}[].
+      React.createElement("div", { style:{display:"flex",flexDirection:"column",gap:"4px"} },
+        items.map((it,i) =>
+          React.createElement("div", { key:i, style:{display:"flex",alignItems:"flex-start",gap:"6px"} },
+            React.createElement("input", { type:"checkbox", checked:!!it.done,
+              onChange: e => { const n=[...items]; n[i]={...it,done:e.target.checked}; onChange({...data,items:n}); },
+              style:{marginTop:"4px",flexShrink:0,accentColor:"var(--accent)",width:"13px",height:"13px",cursor:"pointer"} }),
+            React.createElement(AutoTA, { value:it.text||"", placeholder:"Task...",
+              onChange: v => { const n=[...items]; n[i]={...it,text:v}; onChange({...data,items:n}); },
+              style: it.done ? {textDecoration:"line-through",color:"var(--text-muted)"} : {} })
+          )
+        )
+      )
     )
   );
 }
@@ -433,10 +448,22 @@ export const PUSHUP_NUMS = [5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85,90
 
 export function TilePushups({ config, data={}, onChange, editMode, onRemove, onConfig }) {
   const p = data.pushups||{};
+  // #55 — cumulative marking: the highest tapped count is "today's reps". Tapping n
+  // fills every milestone <= n; re-tapping an already-done n lowers the bar below it.
+  const reached = PUSHUP_NUMS.filter(n => p[n]);
+  const maxReached = reached.length ? Math.max(...reached) : 0;
+  const tapTo = n => {
+    const reaching = !p[n];
+    const next = {};
+    for (const m of PUSHUP_NUMS) next[m] = reaching ? (m <= n) : (m < n);
+    onChange({ ...data, pushups: next });
+  };
   return React.createElement(CardShell, { title:config.title||"Pushup Tracker", accent:"#c8a96e", editMode, onRemove, onConfig },
+    React.createElement("div", { style:{fontSize:"10px",color:"var(--text-muted)",marginBottom:"6px",letterSpacing:"1px",textTransform:"uppercase"} },
+      maxReached > 0 ? `${maxReached} reps today` : "Tap your count"),
     React.createElement("div", { style:{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:"3px"} },
       PUSHUP_NUMS.map(n =>
-        React.createElement("button", { key:n, onClick:()=>onChange({...data,pushups:{...p,[n]:!p[n]}}),
+        React.createElement("button", { key:n, onClick:()=>tapTo(n),
           style:{background:p[n]?"var(--accent-dim)":"var(--bg-card)",border:`1px solid ${p[n]?"var(--accent)":"var(--border)"}`,
             color:p[n]?"var(--accent)":"var(--text-muted)",fontFamily:"'DM Mono',monospace",fontSize:"9px",
             padding:"4px 2px",borderRadius:"3px",cursor:"pointer"} }, n)

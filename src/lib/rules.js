@@ -106,10 +106,12 @@ export function evaluateRule(rule, allDayData, tilesById) {
     case "textprompt-any":
       return !!(td.text?.trim());
     // #30 — auto-rules driven by tracker tiles
-    case "pushups-total-gte":
-      return Object.entries(td.pushups||{})
-        .filter(([,v]) => v)
-        .reduce((sum,[k]) => sum + Number(k||0), 0) >= (rule.threshold||0);
+    case "pushups-total-gte": {
+      // #55 — cumulative model: total reps = the highest tapped milestone, not the
+      // sum of every milestone tapped (which double-counts under cascade marking).
+      const reached = Object.entries(td.pushups||{}).filter(([,v]) => v).map(([k]) => Number(k||0));
+      return (reached.length ? Math.max(...reached) : 0) >= (rule.threshold||0);
+    }
     case "planks-count-gte":
       return Object.values(td.planks||{}).filter(Boolean).length >= (rule.threshold||0);
     // #45 — a specific planks slot is active. Used to auto-tick the check-in's

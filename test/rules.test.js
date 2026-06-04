@@ -55,6 +55,17 @@ describe("evaluateRule", () => {
     expect(typeof evaluateRule(rule, allDone)).toBe("boolean");
     expect(typeof evaluateRule(rule, partial)).toBe("boolean");
   });
+  it("pushups-total-gte uses the MAX tapped milestone, not the sum (#55 cascade)", () => {
+    const rule = { type: "pushups-total-gte", tileId: "pu", threshold: 75 };
+    // Cascade marks every milestone <= reached. Max = 75 → passes; sum would be far higher.
+    const at75 = { pu: { pushups: { 5:true, 10:true, 25:true, 50:true, 75:true } } };
+    const at50 = { pu: { pushups: { 5:true, 25:true, 50:true } } };
+    const none = { pu: { pushups: {} } };
+    expect(evaluateRule(rule, at75)).toBe(true);
+    expect(evaluateRule(rule, at50)).toBe(false); // max 50 < 75
+    expect(evaluateRule(rule, none)).toBe(false);
+  });
+
   it("resolves a tile-event rule against TILE_EVENTS", () => {
     const rule = { type: "tile-event", sourceTileId: "g", event: "gratitude-intention" };
     const filled = { g: { textA: "thanks", textB: "ship it", _type: "guidedam" } };

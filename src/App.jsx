@@ -378,7 +378,10 @@ function HistoryView({ store }) {
                 React.createElement("span", { style:{color:"var(--text-muted)"} }, `${tile.config.titleC||"Priority"}: `), td.textC)
             ),
             (tile.type === "freelist" || tile.type === "project") && React.createElement("div", null,
-              (td.items||[]).filter(x=>x).map((item,i) => React.createElement("div", { key:i, style:{color:"var(--text-dim)",fontSize:"12px",marginBottom:"2px"} }, `○ ${item}`))
+              // #52 — project items are now {text,done}; freelist items stay strings. Handle both.
+              (td.items||[]).map(it => typeof it === "string" ? { text: it, done: false } : (it || { text:"", done:false }))
+                .filter(it => it.text?.trim())
+                .map((it,i) => React.createElement("div", { key:i, style:{color:"var(--text-dim)",fontSize:"12px",marginBottom:"2px",textDecoration: it.done?"line-through":"none"} }, `${it.done?"✓":"○"} ${it.text}`))
             ),
             tile.type === "checkin" && React.createElement("div", null,
               React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"12px",marginBottom:"4px"} },
