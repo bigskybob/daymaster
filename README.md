@@ -1,21 +1,26 @@
 # Daymaster
 
 A modular, tile-based daily planner (PWA) that syncs through your own Google Drive.
-React + Vite frontend on GitHub Pages, with a small Cloudflare Worker for Notion
-integration. Each user's data lives in their own Drive file (`drive.file` scope).
+React + Vite frontend on GitHub Pages, with a small Cloudflare Worker for Notion and
+client-side MSAL for Microsoft To Do. Each user's data lives in their own Drive file
+(`drive.file` scope).
 
 **Live:** https://bigskybob.github.io/daymaster/
 
 ## Highlights
 - **Tile system** — checklists, check-ins, trackers (planks/pushups/dangles with
-  timers), priorities, projects, food log, quote, inline Google Calendar, AI ideas,
-  Notion links, and more. Add/move/configure tiles in edit mode; save layout presets.
+  timers), priorities, projects, food log, quote, inline Google Calendar, AI ideas
+  & AI planner, Notion links, Microsoft To Do, and more. Add/move/configure tiles in
+  edit mode; save layout presets.
 - **Auto-rule engine** — a tile's checkbox can auto-complete from another tile's
   state (e.g. check-in "Planks or Pushups" ticks from the tracker).
 - **Drive sync** — every change saves locally, then to Drive; concurrent edits from
   multiple devices are merged per-day (no last-write-wins data loss).
-- **Notion idea capture** — `💡 Idea` in the header appends a thought straight to a
-  Notion inbox page via the Worker.
+- **Integrations** — Notion idea capture (`💡 Idea` → inbox page) and dynamic Notion
+  quick-links via the Worker; **Microsoft To Do** (read filtered tasks + quick-capture)
+  via client-side MSAL + Graph; inline Google Calendar.
+- **Focus mode & themes** — collapse completed sections to one-liners; 5 color themes
+  (dark / light / forest / desert / ocean). Build version + date shown in the footer.
 
 ## Develop
 ```bash

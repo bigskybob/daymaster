@@ -1,8 +1,9 @@
 # Daymaster — build & deploy
 
-Daymaster is a React SPA (bundled with Vite) served from **GitHub Pages**, plus a
-thin **Cloudflare Worker** API proxy for integrations that browsers can't call
-directly (Notion). The legacy single-file / in-browser-Babel app has been retired.
+Daymaster is a React SPA (bundled with Vite) served from **GitHub Pages**. Backend
+integrations: a thin **Cloudflare Worker** proxy for Notion (browsers can't call it
+directly), and **client-side MSAL** for Microsoft To Do (no server). The legacy
+single-file / in-browser-Babel app has been retired.
 
 ## Frontend (`src/`)
 
@@ -22,8 +23,11 @@ src/
     sync.js              mergeStores (conflict-safe Drive merge)  ← unit-tested
     drive.js             Google Drive persistence (revision check + merge)
     calendar.js          read-only Google Calendar
-    token.js             OAuth access-token holder
-    notion.js            client for the Worker (sendIdea / fetchFavorites)
+    token.js             Google OAuth access-token holder
+    notion.js            client for the Worker (sendIdea #40 / fetchFavorites #50)
+    msauth.js            Microsoft sign-in via MSAL (redirect flow) — #34
+    mstodo.js            Microsoft To Do via Graph (list/add/complete) — #34
+    version.js           build version + date (Vite-stamped) — #58
     audio.js             WebAudio beeps
 test/                    Vitest specs (store, rules, sync, worker, App mount smoke)
 ```
@@ -53,6 +57,16 @@ client. Live at `https://daymaster-api.robkillian.workers.dev`.
 - `GET /links` → query a favorites DB → `[{label,url}]` (**#50**, endpoint ready)
 
 Deployed from a terminal (not Git-connected): `cd worker && npx wrangler deploy`.
-Secrets: `npx wrangler secret put NOTION_TOKEN`. Full runbook + troubleshooting in
-[`worker/README.md`](worker/README.md). The frontend points at it via
+Secrets: `npx wrangler secret put NOTION_TOKEN`. Non-secret config (incl.
+`FAVORITES_DB_ID` for #50) in `worker/wrangler.toml`. Full runbook + troubleshooting
+in [`worker/README.md`](worker/README.md). The frontend points at it via
 `WORKER_URL` in `index.html`.
+
+## Microsoft To Do (#34) — no Worker
+
+Client-side **MSAL** (`@azure/msal-browser`, dynamically imported so it code-splits).
+`src/lib/msauth.js` signs in via the **redirect** flow (`common` authority, supports
+personal accounts); `src/lib/mstodo.js` calls Microsoft Graph (`/me/todo/…`, scope
+`Tasks.ReadWrite`) directly from the browser. Setup = a one-time Microsoft Entra
+**SPA app registration** (redirect URI `https://bigskybob.github.io/daymaster/`),
+whose Application (client) ID goes in `MS_CLIENT_ID` in `index.html`.
