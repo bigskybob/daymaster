@@ -29,7 +29,7 @@ export function AutoTA({ value, onChange, placeholder, style = {} }) {
     onChange: e => { onChange(e.target.value); e.target.style.height="auto"; e.target.style.height=e.target.scrollHeight+"px"; },
     onFocus: e => { e.target.style.height="auto"; e.target.style.height=e.target.scrollHeight+"px"; },
     style: { background:"transparent", border:"none", borderBottom:"1px solid var(--input-border)", color:"var(--text)",
-      fontFamily:"'DM Mono',monospace", fontSize:"12px", padding:"3px 2px", resize:"none",
+      fontFamily:"var(--font-body)", fontSize:"12px", padding:"3px 2px", resize:"none",
       overflow:"hidden", lineHeight:1.6, minHeight:"22px", width:"100%", ...style }
   });
 }
@@ -100,7 +100,7 @@ export function EmojiPicker({ value, onChange }) {
         width:"100%", padding: value ? "4px 8px" : "4px 8px",
         color: value ? "inherit" : "var(--text-faint)",
         textAlign:"left", lineHeight:1.4,
-        fontFamily:"'DM Mono',monospace",
+        fontFamily:"var(--font-body)",
         display:"flex", alignItems:"center", gap:"6px",
         transition:"all 0.15s"
       }
@@ -141,7 +141,7 @@ export function EmojiPicker({ value, onChange }) {
           background:"transparent", border:"1px solid var(--border-dim)",
           borderRadius:"4px", cursor:"pointer",
           color:"var(--text-faint)", fontSize:"9px", letterSpacing:"1px",
-          padding:"4px", fontFamily:"'DM Mono',monospace", textTransform:"uppercase"
+          padding:"4px", fontFamily:"var(--font-body)", textTransform:"uppercase"
         }
       }, "✕ clear")
     )
@@ -162,7 +162,7 @@ export function CardShell({ title, accent="#c8a96e", bg, border, children, editM
       React.createElement("button", { onClick:onRemove, style:iconBtnStyle("#5a1a1a"), title:"Remove" }, "✕")
     ),
     React.createElement("div", {
-      style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",
+      style:{fontFamily:"var(--font-display)",fontSize:"9px",letterSpacing:"2px",
         textTransform:"uppercase",color:"var(--text-muted)",marginBottom:"9px",paddingBottom:"5px",
         borderBottom:"1px solid var(--border-dim)",paddingRight:editMode?"50px":"0"}
     }, title),

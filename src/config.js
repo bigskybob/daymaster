@@ -11,6 +11,9 @@ export const WORKER_URL = (CFG.WORKER_URL || "").replace(/\/$/, "");
 export const MS_CLIENT_ID = CFG.MS_CLIENT_ID || "";
 export const LOCAL_KEY = "daymaster-v2-local";
 export const THEME_KEY  = "daymaster-theme";
+export const FONT_KEY   = "daymaster-font"; // #60 — selected font style
+export const BG_KEY     = "daymaster-bg";   // #25 — background image URL
+export const REMIND_KEY = "daymaster-remind"; // #14 — check-in reminders on/off
 // #38 — added calendar.readonly for inline Google Calendar widget.
 // First load after this change will trigger a re-consent prompt because the scope set widened.
 export const SCOPES = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/calendar.readonly";

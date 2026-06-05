@@ -87,29 +87,40 @@ export function TileTextPrompt({ config, data={}, onChange, editMode, onRemove, 
   );
 }
 
-export function TilePriorities({ config, data={}, onChange, editMode, onRemove, onConfig }) {
+export function TilePriorities({ config, data={}, onChange, editMode, onRemove, onConfig, tilesById }) {
   const count = config.count||3;
   const priorities = data.priorities || Array(count).fill(null).map(()=>({text:"",done:false}));
   const added = data.added || ["","","",""];
+  // #20 — projects this priority can be linked to (shows tagged items in the project tile).
+  const projects = Object.values(tilesById||{}).filter(t => t.type === "project");
   return React.createElement(CardShell, { title:config.title||"My Top Priorities", accent:"#c8a96e", editMode, onRemove, onConfig },
     priorities.map((p,i) =>
       React.createElement("div", { key:i, style:{display:"flex",alignItems:"flex-start",gap:"6px",marginBottom:"6px"} },
-        React.createElement("span", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"16px",color:"var(--accent)",width:"18px",flexShrink:0,lineHeight:1.2} }, i+1),
+        React.createElement("span", { style:{fontFamily:"var(--font-display)",fontSize:"16px",color:"var(--accent)",width:"18px",flexShrink:0,lineHeight:1.2} }, i+1),
         React.createElement("input", { type:"checkbox", checked:!!p.done,
           onChange: e => { const n=[...priorities]; n[i]={...p,done:e.target.checked}; onChange({...data,priorities:n}); },
           style:{marginTop:"4px",flexShrink:0,accentColor:"#c8a96e",width:"13px",height:"13px"} }),
         React.createElement(AutoTA, { value:p.text, placeholder:i===0?"☞ Eat this frog first...":"Priority...",
           onChange: v => { const n=[...priorities]; n[i]={...p,text:v}; onChange({...data,priorities:n}); },
-          style: p.done?{textDecoration:"line-through",color:"var(--text-muted)"}:{} })
+          style: p.done?{textDecoration:"line-through",color:"var(--text-muted)"}:{} }),
+        // #20 — compact "link to project" picker (🔗 turns accent when linked).
+        projects.length > 0 && React.createElement("select", {
+          value: p.projectId || "", title: "Link to a project",
+          onChange: e => { const n=[...priorities]; n[i]={...p,projectId:e.target.value}; onChange({...data,priorities:n}); },
+          style:{flexShrink:0,marginTop:"2px",background:"transparent",border:"none",appearance:"none",
+            color: p.projectId ? "var(--accent)" : "var(--text-xfaint)", fontFamily:"var(--font-body)",
+            fontSize:"11px",cursor:"pointer",width:"18px"} },
+          React.createElement("option", { value:"" }, "🔗"),
+          projects.map(pr => React.createElement("option", { key:pr.id, value:pr.id }, pr.config?.title || "Project")))
       )
     ),
     React.createElement("div", { style:{height:"1px",background:"var(--border-dim)",margin:"8px 0"} }),
-    React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-faint)",marginBottom:"6px"} }, "Added Through Day"),
+    React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-faint)",marginBottom:"6px"} }, "Added Through Day"),
     React.createElement(BulletList, { items:added, onChange:v=>onChange({...data,added:v}), placeholder:"Added task..." })
   );
 }
 
-export function TileProject({ config, data={}, onChange, editMode, onRemove, onConfig }) {
+export function TileProject({ config, data={}, onChange, editMode, onRemove, onConfig, tileId, allDayData }) {
   const count = config.count||4;
   // #52 — project rows are completable: {text, done}. Lazy-convert legacy string[].
   const rawItems = data.items || Array(count).fill("");
@@ -119,6 +130,12 @@ export function TileProject({ config, data={}, onChange, editMode, onRemove, onC
   const hasContent = items.some(x=>x.text?.trim());
   const filledCount = items.filter(x=>x.text?.trim()).length;
   const doneCount = items.filter(x=>x.done).length;
+  // #20 — priorities (from any priorities tile today) tagged to this project.
+  const linked = [];
+  for (const td of Object.values(allDayData || {})) {
+    if (td?._type !== "priorities") continue;
+    for (const p of (td.priorities || [])) if (p.projectId === tileId && (p.text||"").trim()) linked.push(p);
+  }
 
   const header = React.createElement("div", {
     style:{display:"flex",alignItems:"center",gap:"8px",cursor:"pointer",userSelect:"none"},
@@ -131,11 +148,11 @@ export function TileProject({ config, data={}, onChange, editMode, onRemove, onC
           onClick:e=>e.stopPropagation(),
           onChange:e=>{ setLocalTitle(e.target.value); onChange({...data,title:e.target.value}); },
           style:{background:"transparent",border:"none",borderBottom:"1px solid var(--border-dim)",
-            color:"var(--text-dim)",fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",
+            color:"var(--text-dim)",fontFamily:"var(--font-display)",fontSize:"9px",letterSpacing:"2px",
             textTransform:"uppercase",flex:1,padding:"2px 0"}
         })
       : React.createElement("span", {
-          style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",
+          style:{fontFamily:"var(--font-display)",fontSize:"9px",letterSpacing:"2px",
             textTransform:"uppercase",color:isOpen?"var(--accent)":"var(--text-muted)",flex:1}
         }, localTitle || "Untitled Project"),
     !isOpen && hasContent && React.createElement("span", {
@@ -160,7 +177,7 @@ export function TileProject({ config, data={}, onChange, editMode, onRemove, onC
         onChange: e => { setLocalTitle(e.target.value); onChange({...data, title:e.target.value}); },
         placeholder: "Project name...",
         style:{background:"transparent",border:"none",borderBottom:"1px solid var(--border)",
-          color:"var(--accent)",fontFamily:"'Archivo Black',sans-serif",fontSize:"11px",letterSpacing:"1.5px",
+          color:"var(--accent)",fontFamily:"var(--font-display)",fontSize:"11px",letterSpacing:"1.5px",
           textTransform:"uppercase",width:"100%",padding:"3px 0",marginBottom:"10px"}
       }),
       // #52 — completable rows: checkbox + auto-expanding text, persisting {text,done}[].
@@ -175,6 +192,13 @@ export function TileProject({ config, data={}, onChange, editMode, onRemove, onC
               style: it.done ? {textDecoration:"line-through",color:"var(--text-muted)"} : {} })
           )
         )
+      ),
+      // #20 — priorities tagged to this project (read-only roll-up).
+      linked.length > 0 && React.createElement("div", { style:{marginTop:"10px",paddingTop:"8px",borderTop:"1px solid var(--border-dim)"} },
+        React.createElement("div", { style:{fontSize:"9px",letterSpacing:"1px",textTransform:"uppercase",color:"var(--text-faint)",marginBottom:"5px"} }, "🔗 Linked priorities"),
+        linked.map((p,i) => React.createElement("div", { key:i, style:{fontSize:"11px",color:"var(--text-dim)",display:"flex",gap:"6px",marginBottom:"2px"} },
+          React.createElement("span", { style:{color:p.done?"#4a7a4a":"var(--text-muted)",flexShrink:0} }, p.done?"✓":"○"),
+          React.createElement("span", { style: p.done?{textDecoration:"line-through"}:{} }, p.text)))
       )
     )
   );
@@ -184,7 +208,7 @@ export function AddProjectButton({ colId, onAdd }) {
   return React.createElement("button", {
     onClick: () => onAdd(colId, "project"),
     style:{width:"100%",background:"transparent",border:"1px dashed var(--border)",borderRadius:"6px",
-      padding:"8px",color:"var(--text-faint)",fontFamily:"'DM Mono',monospace",fontSize:"10px",
+      padding:"8px",color:"var(--text-faint)",fontFamily:"var(--font-body)",fontSize:"10px",
       cursor:"pointer",letterSpacing:"0.5px",display:"flex",alignItems:"center",justifyContent:"center",gap:"6px",
       transition:"all 0.15s"}
   },
@@ -243,7 +267,7 @@ export function TileGuidedAM({ config, data={}, onChange, editMode, onRemove, on
     style:{display:"flex",alignItems:"center",justifyContent:"space-between",
       paddingBottom:"5px",marginBottom:"9px",borderBottom:"1px solid var(--border-dim)"}
   },
-    React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-muted)"} },
+    React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-muted)"} },
       mode === "guided" ? `Guided · step ${step+1}/${prompts.length}` : `${filledCount}/${prompts.length} filled`
     ),
     React.createElement("div", { style:{display:"flex",alignItems:"center",gap:"7px"} },
@@ -259,7 +283,7 @@ export function TileGuidedAM({ config, data={}, onChange, editMode, onRemove, on
         onClick: toggleMode,
         title: mode === "guided" ? "Show all prompts" : "Step-by-step mode",
         style:{background:"transparent",border:"1px solid var(--border-dim)",color:"var(--text-faint)",
-          fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"1px 7px",borderRadius:"3px",
+          fontFamily:"var(--font-body)",fontSize:"11px",padding:"1px 7px",borderRadius:"3px",
           cursor:"pointer",letterSpacing:"0.5px",lineHeight:1.4}
       }, mode === "guided" ? "≡" : "→")
     )
@@ -271,7 +295,7 @@ export function TileGuidedAM({ config, data={}, onChange, editMode, onRemove, on
       title: config.title || "AM Guided Flow", accent, editMode, onRemove, onConfig
     },
       header,
-      React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"10px",letterSpacing:"1.5px",textTransform:"uppercase",color:accent,marginBottom:"6px"} }, p.title),
+      React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"10px",letterSpacing:"1.5px",textTransform:"uppercase",color:accent,marginBottom:"6px"} }, p.title),
       React.createElement(AutoTA, {
         value: data[`text${p.key}`] || "",
         placeholder: p.placeholder,
@@ -284,7 +308,7 @@ export function TileGuidedAM({ config, data={}, onChange, editMode, onRemove, on
           disabled: step === 0,
           style:{flex:"0 0 auto",background:"var(--bg-hover)",border:"1px solid var(--border)",
             color: step===0 ? "var(--text-faint)" : "var(--text-dim)",
-            fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"6px 12px",borderRadius:"4px",
+            fontFamily:"var(--font-body)",fontSize:"11px",padding:"6px 12px",borderRadius:"4px",
             cursor: step===0 ? "default" : "pointer"}
         }, "← Back"),
         React.createElement("button", {
@@ -293,7 +317,7 @@ export function TileGuidedAM({ config, data={}, onChange, editMode, onRemove, on
           style:{flex:1,background: step===prompts.length-1 ? "var(--bg-hover)" : "var(--accent-dim)",
             border:`1px solid ${step===prompts.length-1 ? "var(--border)" : accent}`,
             color: step===prompts.length-1 ? "var(--text-faint)" : accent,
-            fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"6px 12px",borderRadius:"4px",
+            fontFamily:"var(--font-body)",fontSize:"11px",padding:"6px 12px",borderRadius:"4px",
             cursor: step===prompts.length-1 ? "default" : "pointer"}
         }, step === prompts.length-1 ? "✓ Done" : "Next →")
       )
@@ -308,7 +332,7 @@ export function TileGuidedAM({ config, data={}, onChange, editMode, onRemove, on
     React.createElement("div", { style:{display:"flex",flexDirection:"column",gap:"12px"} },
       prompts.map(p =>
         React.createElement("div", { key:p.key },
-          React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"1.5px",textTransform:"uppercase",color:accent,marginBottom:"4px"} }, p.title),
+          React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"9px",letterSpacing:"1.5px",textTransform:"uppercase",color:accent,marginBottom:"4px"} }, p.title),
           React.createElement(AutoTA, {
             value: data[`text${p.key}`] || "",
             placeholder: p.placeholder,
@@ -354,7 +378,7 @@ export function TileCheckIn({ config, data={}, onChange, editMode, onRemove, all
       React.createElement("button", { onClick:onRemove, style:iconBtnStyle("#5a1a1a") }, "✕")
     ),
     React.createElement("div", {
-      style:{padding:"8px 10px",background:c,fontFamily:"'Archivo Black',sans-serif",
+      style:{padding:"8px 10px",background:c,fontFamily:"var(--font-display)",
         fontSize:"9px",letterSpacing:"1.5px",color:"var(--bg)",textTransform:"uppercase",
         display:"flex",alignItems:"center",justifyContent:"space-between"}
     },
@@ -480,7 +504,7 @@ export function TilePushups({ config, data={}, onChange, editMode, onRemove, onC
       PUSHUP_NUMS.map(n =>
         React.createElement("button", { key:n, onClick:()=>tapTo(n),
           style:{background:p[n]?"var(--accent-dim)":"var(--bg-card)",border:`1px solid ${p[n]?"var(--accent)":"var(--border)"}`,
-            color:p[n]?"var(--accent)":"var(--text-muted)",fontFamily:"'DM Mono',monospace",fontSize:"9px",
+            color:p[n]?"var(--accent)":"var(--text-muted)",fontFamily:"var(--font-body)",fontSize:"9px",
             padding:"4px 2px",borderRadius:"3px",cursor:"pointer"} }, n)
       )
     )
@@ -528,7 +552,7 @@ export function TilePlanks({ config, data={}, onChange, editMode, onRemove, onCo
         slots.map(([k,label]) =>
           React.createElement("button", { key:k, onClick:()=>onChange({...data,planks:{...p,[k]:!p[k]}}),
             style:{background:p[k]?"#2a3a2a":"var(--bg-hover)",border:`1px solid ${p[k]?"#4a7a4a":"var(--border)"}`,
-              color:p[k]?"#7ac97a":"#555",fontFamily:"'DM Mono',monospace",fontSize:"11px",
+              color:p[k]?"#7ac97a":"#555",fontFamily:"var(--font-body)",fontSize:"11px",
               padding:"7px 4px",borderRadius:"3px",cursor:"pointer"} }, label)
         )
       ),
@@ -543,7 +567,7 @@ export function TilePlanks({ config, data={}, onChange, editMode, onRemove, onCo
           style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",width:"28px",height:"28px",
             borderRadius:"4px",cursor:"pointer",fontSize:"14px",lineHeight:"28px",textAlign:"center"} }, "−"),
         React.createElement("div", { style:{flex:1,textAlign:"center"} },
-          React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"22px",color:"#4a7a4a",letterSpacing:"1px"} }, timeStr),
+          React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"22px",color:"#4a7a4a",letterSpacing:"1px"} }, timeStr),
           React.createElement("div", { style:{fontSize:"9px",color:"var(--text-faint)",letterSpacing:"1px",textTransform:"uppercase",marginTop:"1px"} }, "duration")
         ),
         React.createElement("button", { onClick:()=>adjustTimer(10),
@@ -551,7 +575,7 @@ export function TilePlanks({ config, data={}, onChange, editMode, onRemove, onCo
             borderRadius:"4px",cursor:"pointer",fontSize:"14px",lineHeight:"28px",textAlign:"center"} }, "+"),
         React.createElement("button", { onClick:()=>setRunning(true),
           style:{background:"#1a3a1a",border:"1px solid #3a6a3a",color:"#7ac97a",padding:"6px 14px",
-            borderRadius:"4px",cursor:"pointer",fontFamily:"'DM Mono',monospace",fontSize:"11px",letterSpacing:"0.5px"} },
+            borderRadius:"4px",cursor:"pointer",fontFamily:"var(--font-body)",fontSize:"11px",letterSpacing:"0.5px"} },
           "▶ Start")
       )
     )
@@ -623,9 +647,9 @@ export function TileDangles({ config, data={}, onChange, editMode, onRemove, onC
               borderRadius:"5px",padding:"8px 4px",cursor:"pointer",
               display:"flex",flexDirection:"column",alignItems:"center",gap:"3px"}
           },
-            React.createElement("span", { style:{fontSize:"9px",color:done?"#4a7a4a":"#888",fontFamily:"'DM Mono',monospace",letterSpacing:"0.5px"} }, SLOT_LABELS[i]),
+            React.createElement("span", { style:{fontSize:"9px",color:done?"#4a7a4a":"#888",fontFamily:"var(--font-body)",letterSpacing:"0.5px"} }, SLOT_LABELS[i]),
             React.createElement("span", { style:{fontSize:"16px"} }, done ? "✓" : "○"),
-            React.createElement("span", { style:{fontSize:"9px",color:done?"#4a7a4a":"#444",fontFamily:"'DM Mono',monospace",letterSpacing:"0.5px"} }, "0:30")
+            React.createElement("span", { style:{fontSize:"9px",color:done?"#4a7a4a":"#444",fontFamily:"var(--font-body)",letterSpacing:"0.5px"} }, "0:30")
           )
         )
       ),
@@ -637,7 +661,7 @@ export function TileDangles({ config, data={}, onChange, editMode, onRemove, onC
         style:{width:"100%",background:allDone?"#0a1a0a":"#1a0a2a",
           border:`1px solid ${allDone?"#2a4a2a":"#4a2a6a"}`,
           color:allDone?"#4a7a4a":"#9a7ab0",padding:"8px",borderRadius:"4px",
-          cursor:allDone?"default":"pointer",fontFamily:"'DM Mono',monospace",
+          cursor:allDone?"default":"pointer",fontFamily:"var(--font-body)",
           fontSize:"11px",letterSpacing:"1px"}
       }, allDone ? "✓ All sets done" : `▶ Start ${SLOT_LABELS[startIdx]} set`)
     )
@@ -675,7 +699,7 @@ export function TileNumbers({ config, data={}, editMode, onRemove, onConfig, all
       React.createElement("div", { key:label, style:{marginBottom:"10px"} },
         React.createElement("div", { style:{display:"flex",justifyContent:"space-between",marginBottom:"3px"} },
           React.createElement("span", { style:{color:"var(--text-dim)",fontSize:"10px"} }, label),
-          React.createElement("span", { style:{color,fontFamily:"'Archivo Black',sans-serif",fontSize:"12px"} },
+          React.createElement("span", { style:{color,fontFamily:"var(--font-display)",fontSize:"12px"} },
             val, React.createElement("span", { style:{color:"var(--text-faint)"} }, `/${target}`)
           )
         ),
@@ -877,7 +901,7 @@ export function TileGcal({ config, data={}, onChange, editMode, onRemove, onConf
         React.createElement("button", { onClick:onReauth, style:{
           background:"var(--bg-hover)", border:"1px solid var(--border)",
           color:"var(--text-dim)", padding:"5px 10px", borderRadius:"4px",
-          cursor:"pointer", fontFamily:"'DM Mono',monospace", fontSize:"10px"
+          cursor:"pointer", fontFamily:"var(--font-body)", fontSize:"10px"
         } }, "Connect Google Calendar")
       )
     );
@@ -888,7 +912,7 @@ export function TileGcal({ config, data={}, onChange, editMode, onRemove, onConf
         React.createElement("button", { onClick:onReauth, style:{
           background:"var(--bg-hover)", border:"1px solid #c8a02055",
           color:"#c8a020", padding:"5px 10px", borderRadius:"4px",
-          cursor:"pointer", fontFamily:"'DM Mono',monospace", fontSize:"10px"
+          cursor:"pointer", fontFamily:"var(--font-body)", fontSize:"10px"
         } }, "Re-authorize")
       )
     );
@@ -897,7 +921,7 @@ export function TileGcal({ config, data={}, onChange, editMode, onRemove, onConf
       "Couldn't load calendar. ",
       React.createElement("button", { onClick:load, style:{
         background:"transparent",border:"none",color:"var(--accent)",cursor:"pointer",fontSize:"11px",
-        textDecoration:"underline",padding:0,fontFamily:"'DM Mono',monospace"
+        textDecoration:"underline",padding:0,fontFamily:"var(--font-body)"
       } }, "Retry")
     );
   } else if (loading && !events) {
@@ -924,7 +948,7 @@ export function TileGcal({ config, data={}, onChange, editMode, onRemove, onConf
           React.createElement("div", { style:{display:"flex",gap:"10px",alignItems:"baseline",fontSize:"12px"} },
             React.createElement("span", { style:{
               color:"var(--text-muted)",
-              fontFamily:"'DM Mono',monospace",
+              fontFamily:"var(--font-body)",
               fontSize:"10px",
               minWidth:"60px",
               flexShrink:0,
@@ -967,7 +991,7 @@ export function TileCounter({ config, data={}, onChange, editMode, onRemove, onC
     React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"center",gap:"16px",padding:"8px 0"} },
       React.createElement("button", { onClick:()=>onChange({...data,count:Math.max(0,val-1)}),
         style:{...iconBtnStyle("var(--bg-hover)"),width:"32px",height:"32px",fontSize:"20px",color:"var(--text-dim)",lineHeight:"32px"} }, "−"),
-      React.createElement("span", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"40px",color:"var(--accent)",minWidth:"60px",textAlign:"center"} }, val),
+      React.createElement("span", { style:{fontFamily:"var(--font-display)",fontSize:"40px",color:"var(--accent)",minWidth:"60px",textAlign:"center"} }, val),
       React.createElement("button", { onClick:()=>onChange({...data,count:val+1}),
         style:{...iconBtnStyle("var(--bg-hover)"),width:"32px",height:"32px",fontSize:"20px",color:"var(--text-dim)",lineHeight:"32px"} }, "+")
     ),
@@ -1067,7 +1091,7 @@ export function TileIdeas({ config, editMode, onRemove, onConfig, onConfigPatch 
         onChange: e => setDraft(e.target.value),
         onKeyDown: e => { if (e.key === "Enter") { e.preventDefault(); add(); } },
         style:{flex:1,background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"3px",
-          color:"var(--text)",fontFamily:"'DM Mono',monospace",fontSize:"12px",padding:"5px 7px"}
+          color:"var(--text)",fontFamily:"var(--font-body)",fontSize:"12px",padding:"5px 7px"}
       }),
       React.createElement("button", { onClick: add, title:"Add idea",
         style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:accent,
@@ -1134,7 +1158,7 @@ export function TilePlanner({ config, data={}, onChange, editMode, onRemove, onC
       placeholder: "What are you building today?",
       onChange: e => onChange({ ...data, build: e.target.value }),
       style:{width:"100%",background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"4px",
-        color:"var(--text)",fontFamily:"'DM Mono',monospace",fontSize:"13px",padding:"7px 8px",marginBottom:"10px"}
+        color:"var(--text)",fontFamily:"var(--font-body)",fontSize:"13px",padding:"7px 8px",marginBottom:"10px"}
     }),
     React.createElement("div", { style:{fontSize:"9px",color:"var(--text-muted)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"6px",display:"flex",justifyContent:"space-between"} },
       React.createElement("span", null, "Steps"),
@@ -1155,7 +1179,7 @@ export function TilePlanner({ config, data={}, onChange, editMode, onRemove, onC
     ),
     React.createElement("button", { onClick:()=>setSteps([...steps, { id: uid(), text:"", done:false }]),
       style:{marginTop:"8px",background:"var(--bg-hover)",border:"1px solid var(--border)",color:accent,
-        fontFamily:"'DM Mono',monospace",fontSize:"10px",padding:"5px 10px",borderRadius:"3px",cursor:"pointer"} }, "+ Step")
+        fontFamily:"var(--font-body)",fontSize:"10px",padding:"5px 10px",borderRadius:"3px",cursor:"pointer"} }, "+ Step")
   );
 }
 
@@ -1223,20 +1247,20 @@ export function TileMsTodo({ config, editMode, onRemove, onConfig, onConfigPatch
       ? React.createElement("div", { style: faint }, "Microsoft To Do isn't configured.")
     : !account
       ? React.createElement("button", { onClick: connect,
-          style:{background:"var(--bg-hover)",border:`1px solid ${accent}`,color:accent,fontFamily:"'DM Mono',monospace",
+          style:{background:"var(--bg-hover)",border:`1px solid ${accent}`,color:accent,fontFamily:"var(--font-body)",
             fontSize:"11px",padding:"7px 12px",borderRadius:"4px",cursor:"pointer",width:"100%"} }, "Connect Microsoft")
     : React.createElement(React.Fragment, null,
         lists.length > 1 && React.createElement("select", {
           value: listId, onChange: e => pickList(e.target.value), title: "List",
           style:{width:"100%",background:"var(--bg)",border:"1px solid var(--border)",color:"var(--text-dim)",
-            fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"5px 7px",borderRadius:"4px",marginBottom:"8px",cursor:"pointer"}
+            fontFamily:"var(--font-body)",fontSize:"11px",padding:"5px 7px",borderRadius:"4px",marginBottom:"8px",cursor:"pointer"}
         }, lists.map(l => React.createElement("option", { key: l.id, value: l.id }, l.name))),
         React.createElement("div", { style:{display:"flex",gap:"6px",marginBottom:"9px"} },
           React.createElement("input", { value: draft, placeholder: "Add a task…",
             onChange: e => setDraft(e.target.value),
             onKeyDown: e => { if (e.key === "Enter") { e.preventDefault(); add(); } },
             style:{flex:1,background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"3px",
-              color:"var(--text)",fontFamily:"'DM Mono',monospace",fontSize:"12px",padding:"5px 7px"} }),
+              color:"var(--text)",fontFamily:"var(--font-body)",fontSize:"12px",padding:"5px 7px"} }),
           React.createElement("button", { onClick: add, title: "Add",
             style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:accent,fontSize:"15px",
               lineHeight:1,padding:"0 11px",borderRadius:"3px",cursor:"pointer"} }, "+")),
@@ -1255,6 +1279,25 @@ export function TileMsTodo({ config, editMode, onRemove, onConfig, onConfigPatch
   );
 }
 
+// #21 — generic embed/widget tile: drop any embed URL (Spotify, YouTube, a mini
+// app) into config.url and it renders in an iframe. config.height sets the size.
+export function TileEmbed({ config, editMode, onRemove, onConfig }) {
+  const accent = config.accent || "#7a6abf";
+  const url = (config.url || "").trim();
+  const height = Number(config.height) || 152;
+  return React.createElement(CardShell, { title: config.title || "Embed", accent, editMode, onRemove, onConfig },
+    url
+      ? React.createElement("iframe", {
+          src: url, height, width: "100%",
+          style: { border: "none", borderRadius: "6px", display: "block", background: "var(--bg)" },
+          loading: "lazy",
+          allow: "autoplay; encrypted-media; clipboard-write; fullscreen; picture-in-picture",
+          referrerPolicy: "no-referrer-when-downgrade",
+        })
+      : React.createElement("div", { style:{color:"var(--text-faint)",fontSize:"11px",fontStyle:"italic",padding:"4px 0",lineHeight:1.5} },
+          "Open ⚙ Configure and paste an embed URL (e.g. a Spotify or YouTube embed link)."));
+}
+
 // ─── TILE DISPATCH ────────────────────────────────────────────────────────────
 
 export function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, onConfigPatch, allDayData, tilesById, isAuthed, authEpoch, onReauth }) {
@@ -1263,8 +1306,8 @@ export function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig,
   switch(tile.type) {
     case "checklist":  return React.createElement(TileChecklist, {...props, allDayData, tilesById});
     case "textprompt": return React.createElement(TileTextPrompt, props);
-    case "priorities": return React.createElement(TilePriorities, props);
-    case "project":    return React.createElement(TileProject, props);
+    case "priorities": return React.createElement(TilePriorities, {...props, tilesById});
+    case "project":    return React.createElement(TileProject, {...props, tileId: tile.id, allDayData});
     case "freelist":   return React.createElement(TileFreeList, props);
     case "twoprompt":  return React.createElement(TileTwoPrompt, props);
     case "guidedam":   return React.createElement(TileGuidedAM, props);
@@ -1284,6 +1327,7 @@ export function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig,
     case "ideas":      return React.createElement(TileIdeas, {...props, onConfigPatch});
     case "planner":    return React.createElement(TilePlanner, props);
     case "mstodo":     return React.createElement(TileMsTodo, {...props, onConfigPatch});
+    case "embed":      return React.createElement(TileEmbed, props);
     default: return React.createElement("div", { style:{color:"var(--text-muted)",padding:"12px",fontSize:"11px"} }, `Unknown: ${tile.type}`);
   }
 }

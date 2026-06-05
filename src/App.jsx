@@ -1,6 +1,6 @@
 // App shell: TileLibrary, ConfigModal, HistoryView, SyncDot, and the App component.
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { CLIENT_ID, APP_URL, DRIVE_FOLDER, LOCAL_KEY, THEME_KEY, SCOPES } from "./config.js";
+import { CLIENT_ID, APP_URL, DRIVE_FOLDER, LOCAL_KEY, THEME_KEY, FONT_KEY, BG_KEY, REMIND_KEY, SCOPES } from "./config.js";
 import { setToken } from "./lib/token.js";
 import { loadFromDrive, saveToDrive } from "./lib/drive.js";
 import { fetchCalendarList, clearCalendarListCache } from "./lib/calendar.js";
@@ -23,6 +23,16 @@ const THEMES = [
   { key: "forest", name: "🌲 Forest" },
   { key: "desert", name: "🏜️ Desert" },
   { key: "ocean",  name: "🌊 Ocean" },
+];
+
+// #60 — selectable font styles. Each key (except "mono") has a [data-font="<key>"]
+// CSS block swapping --font-body / --font-display. Same pattern as THEMES.
+const FONTS = [
+  { key: "mono",    name: "Aa Mono" },
+  { key: "sans",    name: "Aa Sans" },
+  { key: "serif",   name: "Aa Serif" },
+  { key: "rounded", name: "Aa Rounded" },
+  { key: "slab",    name: "Aa Slab" },
 ];
 
 // #2 / #54 — is a tile "complete" for the day? Used by Focus mode to collapse
@@ -87,23 +97,23 @@ function IdeaCaptureModal({ onClose }) {
       onClick: e => e.stopPropagation(),
       style:{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:"8px",padding:"18px",width:"min(440px,92vw)",boxShadow:"0 12px 40px #000a"}
     },
-      React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"10px",letterSpacing:"1.5px",textTransform:"uppercase",color:"var(--accent)",marginBottom:"10px"} }, "💡 Capture an idea"),
+      React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"10px",letterSpacing:"1.5px",textTransform:"uppercase",color:"var(--accent)",marginBottom:"10px"} }, "💡 Capture an idea"),
       React.createElement("div", { style:{fontSize:"10px",color:"var(--text-muted)",marginBottom:"10px",lineHeight:1.5} }, "Appends to your Daymaster — Incoming Ideas page in Notion."),
       React.createElement("textarea", {
         value: text, autoFocus: true, rows: 3,
         placeholder: "A rough idea, half-formed thought…",
         onChange: e => setText(e.target.value),
         onKeyDown: e => { if ((e.metaKey||e.ctrlKey) && e.key === "Enter") send(); },
-        style:{width:"100%",background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"4px",color:"var(--text)",fontFamily:"'DM Mono',monospace",fontSize:"12px",padding:"8px",resize:"vertical",lineHeight:1.5}
+        style:{width:"100%",background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"4px",color:"var(--text)",fontFamily:"var(--font-body)",fontSize:"12px",padding:"8px",resize:"vertical",lineHeight:1.5}
       }),
       React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:"12px",gap:"10px"} },
         React.createElement("span", { style:{fontSize:"10px",color: status==="error"?"#c97a7a":"var(--text-muted)"} },
           status==="sending" ? "Sending…" : status==="sent" ? "Sent ✓" : status==="error" ? `Failed: ${err}` : "⌘↵ to send"),
         React.createElement("div", { style:{display:"flex",gap:"8px"} },
           React.createElement("button", { onClick:onClose,
-            style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"6px 12px",borderRadius:"4px",cursor:"pointer"} }, "Cancel"),
+            style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",fontFamily:"var(--font-body)",fontSize:"11px",padding:"6px 12px",borderRadius:"4px",cursor:"pointer"} }, "Cancel"),
           React.createElement("button", { onClick:send, disabled: !text.trim()||status==="sending",
-            style:{background:"var(--accent)",border:"1px solid var(--accent)",color:"var(--bg)",fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"6px 14px",borderRadius:"4px",cursor:"pointer",opacity:(!text.trim()||status==="sending")?0.5:1} }, "Send")
+            style:{background:"var(--accent)",border:"1px solid var(--accent)",color:"var(--bg)",fontFamily:"var(--font-body)",fontSize:"11px",padding:"6px 14px",borderRadius:"4px",cursor:"pointer",opacity:(!text.trim()||status==="sending")?0.5:1} }, "Send")
         )
       )
     )
@@ -128,17 +138,17 @@ function TileLibrary({ onAdd, columns }) {
   React.useEffect(() => { setCol(shortestColId); }, [shortestColId]);
   return React.createElement("div", { style:{background:"var(--bg-hover)",border:"1px solid var(--border)",borderRadius:"6px",padding:"14px",marginBottom:"14px"} },
     React.createElement("div", { style:{display:"flex",alignItems:"center",gap:"10px",marginBottom:"10px",flexWrap:"wrap"} },
-      React.createElement("span", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-muted)"} }, "Add to column:"),
+      React.createElement("span", { style:{fontFamily:"var(--font-display)",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-muted)"} }, "Add to column:"),
       columns.map(c => React.createElement("button", { key:c.id, onClick:()=>setCol(c.id),
         style:{background:col===c.id?"var(--accent-dim)":"var(--bg-card)",border:`1px solid ${col===c.id?"var(--accent)":"var(--border)"}`,
-          color:col===c.id?"var(--accent)":"var(--text-dim)",fontSize:"10px",padding:"3px 10px",borderRadius:"3px",cursor:"pointer",fontFamily:"'DM Mono',monospace"} },
+          color:col===c.id?"var(--accent)":"var(--text-dim)",fontSize:"10px",padding:"3px 10px",borderRadius:"3px",cursor:"pointer",fontFamily:"var(--font-body)"} },
         c.id
       ))
     ),
     React.createElement("div", { style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(90px,1fr))",gap:"6px"} },
       Object.entries(TILE_TYPES).map(([type,{label,icon}]) =>
         React.createElement("button", { key:type, onClick:()=>onAdd(col,type),
-          style:{background:"var(--bg-card)",border:"1px solid var(--border)",color:"var(--text-dim)",fontFamily:"'DM Mono',monospace",
+          style:{background:"var(--bg-card)",border:"1px solid var(--border)",color:"var(--text-dim)",fontFamily:"var(--font-body)",
             fontSize:"10px",padding:"8px 6px",borderRadius:"4px",cursor:"pointer",textAlign:"center",
             display:"flex",flexDirection:"column",alignItems:"center",gap:"3px"} },
           React.createElement("span", { style:{fontSize:"16px"} }, icon),
@@ -164,8 +174,8 @@ function ConfigModal({ tile, tiles, onSave, onClose }) {
     return () => { alive = false; };
   }, [tile.type]);
 
-  const inputStyle = {width:"100%",background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"3px",color:"var(--text)",fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"6px 8px"};
-  const tinyBtn   = {background:"var(--bg-card)",border:"1px solid var(--border)",color:"var(--text-dim)",fontFamily:"'DM Mono',monospace",fontSize:"10px",padding:"3px 8px",borderRadius:"3px",cursor:"pointer"};
+  const inputStyle = {width:"100%",background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"3px",color:"var(--text)",fontFamily:"var(--font-body)",fontSize:"11px",padding:"6px 8px"};
+  const tinyBtn   = {background:"var(--bg-card)",border:"1px solid var(--border)",color:"var(--text-dim)",fontFamily:"var(--font-body)",fontSize:"10px",padding:"3px 8px",borderRadius:"3px",cursor:"pointer"};
   const labelEl   = k => React.createElement("div", { style:{fontSize:"9px",color:"var(--text-muted)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"} }, k);
 
   // #46 — custom editor for notionlinks.links (array of {label, url}). The default
@@ -223,7 +233,7 @@ function ConfigModal({ tile, tiles, onSave, onClose }) {
     };
 
     return React.createElement("div", { style:{marginTop:"14px",paddingTop:"12px",borderTop:"1px solid var(--border)"} },
-      React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"10px",color:"var(--accent)",letterSpacing:"1.5px",marginBottom:"4px"} }, "AUTO-TICK RULES"),
+      React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"10px",color:"var(--accent)",letterSpacing:"1.5px",marginBottom:"4px"} }, "AUTO-TICK RULES"),
       React.createElement("div", { style:{fontSize:"9px",color:"var(--text-faint)",marginBottom:"10px",lineHeight:1.5} },
         "Each item can auto-check when something happens on another tile."),
       items.length === 0
@@ -289,7 +299,7 @@ function ConfigModal({ tile, tiles, onSave, onClose }) {
     style:{position:"fixed",inset:0,background:"#000b",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}
   },
     React.createElement("div", { style:{background:"var(--bg-hover)",border:"1px solid var(--border)",borderRadius:"8px",padding:"22px",width:"380px",maxHeight:"82vh",overflow:"auto"} },
-      React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"12px",color:"var(--accent)",marginBottom:"16px",letterSpacing:"1px"} },
+      React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"12px",color:"var(--accent)",marginBottom:"16px",letterSpacing:"1px"} },
         `Configure: ${TILE_TYPES[tile.type]?.label||tile.type}`
       ),
       Object.entries(cfg).map(([k,v]) => {
@@ -371,10 +381,10 @@ function ConfigModal({ tile, tiles, onSave, onClose }) {
       renderRulesEditor(),
       React.createElement("div", { style:{display:"flex",gap:"8px",marginTop:"16px"} },
         React.createElement("button", { onClick:()=>onSave(cfg),
-          style:{flex:1,background:"var(--accent-dim)",border:"1px solid var(--accent)",color:"var(--accent)",fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"8px",borderRadius:"4px",cursor:"pointer"} },
+          style:{flex:1,background:"var(--accent-dim)",border:"1px solid var(--accent)",color:"var(--accent)",fontFamily:"var(--font-body)",fontSize:"11px",padding:"8px",borderRadius:"4px",cursor:"pointer"} },
           "Save"),
         React.createElement("button", { onClick:onClose,
-          style:{flex:1,background:"var(--bg-card)",border:"1px solid var(--border)",color:"var(--text-dim)",fontFamily:"'DM Mono',monospace",fontSize:"11px",padding:"8px",borderRadius:"4px",cursor:"pointer"} },
+          style:{flex:1,background:"var(--bg-card)",border:"1px solid var(--border)",color:"var(--text-dim)",fontFamily:"var(--font-body)",fontSize:"11px",padding:"8px",borderRadius:"4px",cursor:"pointer"} },
           "Cancel")
       )
     )
@@ -407,7 +417,7 @@ function HistoryView({ store }) {
   }, [store.layouts]);
 
   if (!sortedDesc.length) return React.createElement("div", {
-    style:{textAlign:"center",padding:"80px",color:"var(--text-faint)",fontFamily:"'DM Mono',monospace",fontSize:"12px"}
+    style:{textAlign:"center",padding:"80px",color:"var(--text-faint)",fontFamily:"var(--font-body)",fontSize:"12px"}
   }, "No history yet — your completed days will appear here.");
 
   const selData = sel ? store.days[sel] : null;
@@ -415,12 +425,12 @@ function HistoryView({ store }) {
   return React.createElement("div", { style:{maxWidth:"960px",margin:"0 auto",padding:"24px",display:"grid",gridTemplateColumns:"200px 1fr",gap:"16px"} },
     React.createElement("div", null,
       React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"10px"} },
-        React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-faint)"} }, "Past Days"),
+        React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-faint)"} }, "Past Days"),
         // #48 — sort toggle. Clicking flips direction; chevron indicates current.
         React.createElement("button", {
           onClick: () => setSortDir(d => d === "desc" ? "asc" : "desc"),
           title: sortDir === "desc" ? "Showing newest first — click for oldest first" : "Showing oldest first — click for newest first",
-          style:{background:"transparent",border:"none",color:"var(--text-faint)",fontFamily:"'DM Mono',monospace",fontSize:"9px",cursor:"pointer",letterSpacing:"0.5px",padding:"0 2px"}
+          style:{background:"transparent",border:"none",color:"var(--text-faint)",fontFamily:"var(--font-body)",fontSize:"9px",cursor:"pointer",letterSpacing:"0.5px",padding:"0 2px"}
         }, sortDir === "desc" ? "↓ newest" : "↑ oldest")
       ),
       days.map(([key]) => {
@@ -433,25 +443,25 @@ function HistoryView({ store }) {
         return React.createElement("button", { key, onClick:()=>setSel(key),
           style:{display:"block",width:"100%",textAlign:"left",background:bgCol,
             border:`1px solid ${borderCol}`,borderRadius:"4px",padding:"8px 10px",
-            marginBottom:"4px",color:txtCol,fontFamily:"'DM Mono',monospace",
+            marginBottom:"4px",color:txtCol,fontFamily:"var(--font-body)",
             fontSize:"10px",cursor:"pointer",position:"relative"} },
           fmtDate(key),
           isLatest && React.createElement("span", {
             style:{position:"absolute",top:"3px",right:"4px",fontSize:"7px",letterSpacing:"1px",
               color:"var(--accent)",background:"var(--bg)",border:"1px solid var(--accent)",
-              padding:"1px 4px",borderRadius:"2px",fontFamily:"'Archivo Black',sans-serif"}
+              padding:"1px 4px",borderRadius:"2px",fontFamily:"var(--font-display)"}
           }, "LATEST")
         );
       })
     ),
     React.createElement("div", null,
       selData ? React.createElement("div", null,
-        React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"16px",color:"var(--accent)",marginBottom:"16px"} }, fmtDate(sel)),
+        React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"16px",color:"var(--accent)",marginBottom:"16px"} }, fmtDate(sel)),
         allTiles.map(tile => {
           const td = selData[tile.id];
           if (!td) return null;
           return React.createElement("div", { key:tile.id, style:{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:"5px",padding:"13px",marginBottom:"10px"} },
-            React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-muted)",marginBottom:"8px"} }, tile.config?.title||tile.id),
+            React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-muted)",marginBottom:"8px"} }, tile.config?.title||tile.id),
             // Render a readable summary based on tile type
             tile.type === "priorities" && React.createElement("div", null,
               (td.priorities||[]).filter(p=>p.text).map((p,i) =>
@@ -526,7 +536,7 @@ function HistoryView({ store }) {
             )
           );
         })
-      ) : React.createElement("div", { style:{color:"var(--text-faint)",fontFamily:"'DM Mono',monospace",fontSize:"12px",padding:"60px",textAlign:"center"} }, "← Select a day")
+      ) : React.createElement("div", { style:{color:"var(--text-faint)",fontFamily:"var(--font-body)",fontSize:"12px",padding:"60px",textAlign:"center"} }, "← Select a day")
     )
   );
 }
@@ -554,13 +564,22 @@ function App() {
   const [configTile, setConfigTile] = useState(null);
   const [dragState, setDragState] = useState(null);
   const [theme, setTheme]         = useState(() => localStorage.getItem(THEME_KEY) || "dark");
+  const [font, setFont]           = useState(() => localStorage.getItem(FONT_KEY) || "mono"); // #60
+  const [bg, setBgState]          = useState(() => localStorage.getItem(BG_KEY) || ""); // #25
+  const setBg = (url) => {
+    const v = (url || "").trim();
+    setBgState(v);
+    if (v) localStorage.setItem(BG_KEY, v); else localStorage.removeItem(BG_KEY);
+  };
   // #35 — per-column reveal of past-due check-in blocks, plus a minute ticker so
   // staleness re-evaluates as the day rolls on without needing a user interaction.
   const [showStale, setShowStale] = useState({});
-  const [, setClock]              = useState(0);
+  const [clock, setClock]         = useState(0);
   const [ideaCapture, setIdeaCapture] = useState(false); // #40 — Notion idea capture modal
   const [focusMode, setFocusMode] = useState(false);     // #2/#54 — collapse completed tiles
   const [focusExpanded, setFocusExpanded] = useState({}); // per-tile manual expand override
+  const [remind, setRemind]       = useState(() => localStorage.getItem(REMIND_KEY) === "1"); // #14
+  const firedRef = useRef(new Set());                    // #14 — reminders already fired today
   const saveTimer = useRef(null);
   const isAuthed = authState === "authed";
 
@@ -570,11 +589,48 @@ function App() {
     return () => clearInterval(id);
   }, []);
 
+  // #14 — opt-in reminders: ~10 min before each not-yet-done check-in's scheduled
+  // (delay-adjusted) time, fire a browser notification once. Runs on the minute tick.
+  useEffect(() => {
+    if (!remind || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    const lay = store.layouts[store.activeLayout || "default"];
+    if (!lay) return;
+    const today = todayKey();
+    const data = store.days[today] || {};
+    const d = new Date();
+    const nowMin = d.getHours() * 60 + d.getMinutes();
+    for (const col of lay.columns) for (const t of (col.tiles || [])) {
+      if (t.type !== "checkin") continue;
+      const sched = checkinScheduleMin(t.config);
+      if (sched == null) continue;
+      const eff = sched + ((data[t.id]?._delayMin) || 0);
+      const key = `${today}:${t.id}`;
+      const due = nowMin >= eff - 10 && nowMin <= eff;
+      if (due && !firedRef.current.has(key) && !checkinIsDone(t.config, data[t.id] || {}, data)) {
+        firedRef.current.add(key);
+        try { new Notification(`Daymaster — ${t.config.title} check-in`, { body: "Coming up in ~10 minutes.", tag: key }); } catch {}
+      }
+    }
+  }, [clock, remind, store]);
+
+  const toggleRemind = async () => {
+    if (remind) { setRemind(false); localStorage.removeItem(REMIND_KEY); return; }
+    if (typeof Notification === "undefined") return;
+    let perm = Notification.permission;
+    if (perm !== "granted") { try { perm = await Notification.requestPermission(); } catch { return; } }
+    if (perm === "granted") { setRemind(true); localStorage.setItem(REMIND_KEY, "1"); }
+  };
+
   // ── Theme ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
+  // #60 — apply selected font style to documentElement (drives --font-* vars).
+  useEffect(() => {
+    document.documentElement.setAttribute("data-font", font);
+    localStorage.setItem(FONT_KEY, font);
+  }, [font]);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -894,14 +950,27 @@ function App() {
     onClick,
     style:{background:active?"var(--accent-dim)":"var(--bg-hover)",border:`1px solid ${active?"var(--accent)":"var(--border)"}`,
       color:active?"var(--accent)":"var(--text-dim)",padding:"5px 12px",borderRadius:"4px",cursor:"pointer",
-      fontFamily:"'DM Mono',monospace",fontSize:"10px",letterSpacing:"0.5px",...extra}
+      fontFamily:"var(--font-body)",fontSize:"10px",letterSpacing:"0.5px",...extra}
   }, label);
 
-  return React.createElement("div", { style:{minHeight:"100vh",background:"var(--bg)",color:"var(--text)",fontFamily:"'DM Mono',monospace",fontSize:"12px"} },
+  return React.createElement("div", { style:{minHeight:"100vh",
+      // #25 — optional background image (dimmed scrim keeps tiles readable).
+      background: bg ? `linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)), url("${bg}") center / cover fixed` : "var(--bg)",
+      color:"var(--text)",fontFamily:"var(--font-body)",fontSize:"12px"} },
 
     // GLOBAL STYLES — CSS variables drive both dark and light themes
     React.createElement("style", null, `
-      @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Archivo+Black&family=Instrument+Serif:ital@0;1&display=swap');
+      @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Archivo+Black&family=Instrument+Serif:ital@0;1&family=Inter:wght@400;700&family=Lora:wght@400;600&family=Playfair+Display:wght@600&family=Quicksand:wght@400;600&family=Roboto+Slab:wght@400;700&display=swap');
+
+      /* ── Fonts (#60): --font-body / --font-display default to Mono; [data-font] overrides ── */
+      :root {
+        --font-body:    'DM Mono', monospace;
+        --font-display: 'Archivo Black', sans-serif;
+      }
+      [data-font="sans"]    { --font-body: 'Inter', sans-serif;        --font-display: 'Inter', sans-serif; }
+      [data-font="serif"]   { --font-body: 'Lora', Georgia, serif;     --font-display: 'Playfair Display', serif; }
+      [data-font="rounded"] { --font-body: 'Quicksand', sans-serif;    --font-display: 'Quicksand', sans-serif; }
+      [data-font="slab"]    { --font-body: 'Roboto Slab', serif;       --font-display: 'Roboto Slab', serif; }
 
       /* ── Dark theme (default) ── */
       :root, [data-theme="dark"] {
@@ -1060,7 +1129,7 @@ function App() {
     // HEADER
     React.createElement("div", { className:"dm-header", style:{background:"var(--bg-header)",borderBottom:"1px solid var(--border-head)",padding:"12px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50} },
       React.createElement("div", { style:{display:"flex",alignItems:"center",gap:"12px"} },
-        React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"20px",letterSpacing:"-0.5px"} },
+        React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"20px",letterSpacing:"-0.5px"} },
           "Day", React.createElement("span", { style:{color:"var(--accent)"} }, "master")
         ),
         React.createElement(SyncDot, { status: isAuthed ? syncStatus : (authState==="no-config"?"offline":"idle") })
@@ -1082,7 +1151,7 @@ function App() {
           onChange: e => switchLayout(e.target.value),
           title: "Switch layout preset",
           style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",
-            fontFamily:"'DM Mono',monospace",fontSize:"10px",padding:"4px 8px",borderRadius:"4px",
+            fontFamily:"var(--font-body)",fontSize:"10px",padding:"4px 8px",borderRadius:"4px",
             cursor:"pointer",letterSpacing:"0.5px"}
         },
           allLayoutEntries.map(([k, l]) => React.createElement("option", { key:k, value:k }, l?.name || k))
@@ -1101,17 +1170,33 @@ function App() {
           onChange: e => setTheme(e.target.value),
           title: "Theme",
           style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",
-            fontFamily:"'DM Mono',monospace",fontSize:"10px",padding:"4px 8px",borderRadius:"4px",
+            fontFamily:"var(--font-body)",fontSize:"10px",padding:"4px 8px",borderRadius:"4px",
             cursor:"pointer",letterSpacing:"0.5px"}
         }, THEMES.map(t => React.createElement("option", { key:t.key, value:t.key }, t.name))),
+        // #60 — font-style picker (mirrors the theme picker).
+        React.createElement("select", {
+          value: font,
+          onChange: e => setFont(e.target.value),
+          title: "Font style",
+          style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",
+            fontFamily:"var(--font-body)",fontSize:"10px",padding:"4px 8px",borderRadius:"4px",
+            cursor:"pointer",letterSpacing:"0.5px"}
+        }, FONTS.map(f => React.createElement("option", { key:f.key, value:f.key }, f.name))),
+        // #25 — set/clear a background image (per-device).
+        headerBtn(bg ? "🖼 BG ✓" : "🖼 BG", () => {
+          const u = window.prompt("Background image URL (leave blank to clear):", bg);
+          if (u !== null) setBg(u);
+        }, !!bg, { fontSize:"9px", padding:"4px 8px" }),
+        // #14 — opt-in check-in reminders (browser notifications).
+        headerBtn(remind ? "🔔 On" : "🔔 Off", toggleRemind, remind, { fontSize:"9px", padding:"4px 8px" }),
         React.createElement("div", { style:{width:"1px",height:"18px",background:"var(--sep)",margin:"0 2px"} }),
         !isAuthed && authState!=="authing" && React.createElement("button", {
           onClick:initGoogleAuth,
-          style:{background:"#1a2a1a",border:"1px solid #3a6a3a",color:"#7ac97a",padding:"5px 12px",borderRadius:"4px",cursor:"pointer",fontFamily:"'DM Mono',monospace",fontSize:"10px"}
+          style:{background:"#1a2a1a",border:"1px solid #3a6a3a",color:"#7ac97a",padding:"5px 12px",borderRadius:"4px",cursor:"pointer",fontFamily:"var(--font-body)",fontSize:"10px"}
         }, authState==="no-config"?"⚙ Add Client ID":"↻ Connect Drive"),
         authState==="authing" && React.createElement("span", { style:{color:"var(--text-muted)",fontSize:"10px"} }, "Connecting..."),
         headerBtn("⬇ Backup", exportBackup),
-        React.createElement("label", { style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",padding:"5px 12px",borderRadius:"4px",cursor:"pointer",fontFamily:"'DM Mono',monospace",fontSize:"10px"} },
+        React.createElement("label", { style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",padding:"5px 12px",borderRadius:"4px",cursor:"pointer",fontFamily:"var(--font-body)",fontSize:"10px"} },
           "⬆ Restore",
           React.createElement("input", { type:"file", accept:".json", style:{display:"none"}, onChange:importBackup })
         )
@@ -1173,7 +1258,7 @@ function App() {
               }
             }
           },
-            editMode && React.createElement("div", { style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"8px",letterSpacing:"3px",textTransform:"uppercase",color:"var(--text-xfaint)",textAlign:"center",padding:"4px",border:"1px dashed var(--border-dim)",borderRadius:"4px"} }, col.id),
+            editMode && React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"8px",letterSpacing:"3px",textTransform:"uppercase",color:"var(--text-xfaint)",textAlign:"center",padding:"4px",border:"1px dashed var(--border-dim)",borderRadius:"4px"} }, col.id),
             orderedTiles.map((tile, tileIdx) => {
               const isDragging = dragState?.colId===col.id && dragState?.tileIdx===tileIdx;
               const prevCol = colIdx > 0 ? layout.columns[colIdx-1] : null;
@@ -1249,7 +1334,7 @@ function App() {
               React.createElement("button", {
                 onClick: () => setShowStale(s => ({ ...s, [col.id]: !s[col.id] })),
                 style:{ width:"100%", background:"transparent", border:"1px dashed var(--border-dim)",
-                  color:"var(--text-faint)", fontFamily:"'DM Mono',monospace", fontSize:"10px",
+                  color:"var(--text-faint)", fontFamily:"var(--font-body)", fontSize:"10px",
                   letterSpacing:"1px", textTransform:"uppercase", padding:"6px", borderRadius:"4px", cursor:"pointer" }
               }, `${showStale[col.id] ? "▾ Hide" : "▸ Show"} ${staleTiles.length} hidden check-in${staleTiles.length>1?"s":""}`),
               showStale[col.id] && React.createElement("div", {

@@ -53,21 +53,21 @@ export function FullscreenTimer({ seconds, label, onComplete, onCancel }) {
         strokeLinecap:"round",
         style:{transform:"rotate(-90deg)",transformOrigin:"130px 130px",transition:"stroke-dashoffset 0.9s linear, stroke 0.3s"} }),
       React.createElement("text", { x:"130",y:"118",textAnchor:"middle",
-        style:{fontFamily:"'Archivo Black',sans-serif",fontSize:"58px",fill:color,transition:"fill 0.3s"} }, timeStr),
+        style:{fontFamily:"var(--font-display)",fontSize:"58px",fill:color,transition:"fill 0.3s"} }, timeStr),
       React.createElement("text", { x:"130",y:"152",textAnchor:"middle",
-        style:{fontFamily:"'DM Mono',monospace",fontSize:"13px",fill:"var(--text-muted)",letterSpacing:"2px",textTransform:"uppercase"} }, label)
+        style:{fontFamily:"var(--font-body)",fontSize:"13px",fill:"var(--text-muted)",letterSpacing:"2px",textTransform:"uppercase"} }, label)
     ),
     // Controls
     React.createElement("div", { style:{display:"flex",gap:"14px"} },
       React.createElement("button", {
         onClick: () => { setRunning(r=>!r); if(!running) {} },
         style:{background:"var(--bg-hover)",border:`1px solid ${running?"var(--border)":"var(--accent)"}`,color:running?"var(--text-dim)":"var(--accent)",
-          fontFamily:"'DM Mono',monospace",fontSize:"13px",padding:"10px 28px",borderRadius:"6px",cursor:"pointer",letterSpacing:"1px"}
+          fontFamily:"var(--font-body)",fontSize:"13px",padding:"10px 28px",borderRadius:"6px",cursor:"pointer",letterSpacing:"1px"}
       }, running ? "⏸ Pause" : "▶ Resume"),
       React.createElement("button", {
         onClick: onCancel,
         style:{background:"#1a0a0a",border:"1px solid #5a1a1a",color:"#a04040",
-          fontFamily:"'DM Mono',monospace",fontSize:"13px",padding:"10px 28px",borderRadius:"6px",cursor:"pointer",letterSpacing:"1px"}
+          fontFamily:"var(--font-body)",fontSize:"13px",padding:"10px 28px",borderRadius:"6px",cursor:"pointer",letterSpacing:"1px"}
       }, "✕ Cancel")
     ),
     isLow && remaining > 0 && React.createElement("div", {

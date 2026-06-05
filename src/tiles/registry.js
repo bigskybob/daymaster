@@ -26,6 +26,7 @@ export const TILE_TYPES = {
   ideas:      { label: "AI Ideas",        icon: "✲" },
   planner:    { label: "AI Planner",      icon: "◇" },
   mstodo:     { label: "MS To Do",        icon: "✔" },
+  embed:      { label: "Embed",           icon: "▭" },
 };
 
 export function defaultConfig(type) {
@@ -71,6 +72,8 @@ export function defaultConfig(type) {
     planner:    { title: "Today's AI Build", accent: "#7a6abf" },
     // #34 — Microsoft To Do (MSAL + Graph). listId chosen at runtime, saved to config.
     mstodo:     { title: "Microsoft To Do", accent: "#3a6ea5" },
+    // #21 — generic iframe embed. Paste a Spotify/YouTube/etc. embed URL via Configure.
+    embed:      { title: "Embed", accent: "#7a6abf", url: "", height: 152 },
   };
   return map[type] || { title: type };
 }
