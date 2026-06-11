@@ -21,6 +21,9 @@ client-side MSAL for Microsoft To Do. Each user's data lives in their own Drive 
   via client-side MSAL + Graph; inline Google Calendar.
 - **Focus mode & themes** — collapse completed sections to one-liners; 5 color themes
   (dark / light / forest / desert / ocean). Build version + date shown in the footer.
+- **Auth & owner gate** — connect or disconnect Drive sync from the header (**⎋ Sign
+  out** revokes the token, forcing a fresh consent on reconnect). Sign-in requests the
+  `email` scope so the Worker can gate Notion features to the owner's account (#62).
 
 ## Develop
 ```bash

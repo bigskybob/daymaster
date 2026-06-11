@@ -5,7 +5,8 @@ Notion token server-side, adds CORS, and only answers requests carrying a valid
 Google access token minted by the Daymaster OAuth client.
 
 **Endpoints** (all need `Authorization: Bearer <google_access_token>`):
-- `POST /ideas` `{ "text": "..." }` → appends a paragraph to the Incoming Ideas page (**#40**)
+- `POST /ideas` `{ "text": "..." }` → adds a paragraph **under the "Ideas" heading** on
+  the Incoming Ideas page (falls back to the page end if the heading is missing) (**#40**)
 - `GET /links` → queries the configured Notion favorites DB → `{ "links": [{label,url}] }` (**#50**)
 
 ---
@@ -57,11 +58,17 @@ Then try the in-app capture once `WORKER_URL` is live.
 ---
 
 ## Notes
-- **Access control:** the Worker accepts any token minted by the Daymaster OAuth
-  client (audience check). `OWNER_EMAIL` is also set, but it only takes effect once
-  the app requests the `email` scope — until then these owner-only Notion features
-  are gated on audience + the locked `ALLOWED_ORIGIN`. When you go multi-user
-  (#56/#57), add `openid email` to `SCOPES` and the email check enforces automatically.
+- **Access control (owner-only, #62):** the app requests `openid email` in `SCOPES`
+  (`src/config.js`), so access tokens carry the signed-in email and the Worker enforces
+  `OWNER_EMAIL` — any other Google account gets a `401`. That 401 (visible in
+  `npx wrangler tail` or the Cloudflare dashboard) is also the "someone else tried"
+  signal. The audience check (token minted by the Daymaster OAuth client) and the locked
+  `ALLOWED_ORIGIN` still apply. Safe fallback: a token without an email gates on audience
+  alone, so there's no lockout window during a scope change.
+  - **Activating it after a scope change:** redeploy the Worker, then in the live app use
+    **⎋ Sign out → ↻ Connect Drive** to re-consent and mint an email-bearing token.
+    Deploy the Worker *before* re-consenting (a new token is harmless against the old
+    Worker; the gate just won't enforce until the redeploy lands).
 - **Favorites DB (#50):** uncomment `FAVORITES_DB_ID` (+ optional `FAVORITES_FILTER`)
   in `wrangler.toml`, share that DB with the integration, redeploy.
 - **Local dev:** `npm run dev` runs the Worker locally via miniflare.

@@ -53,10 +53,19 @@ A tiny API proxy that holds the Notion token server-side, adds CORS, and only
 answers requests carrying a Google access token minted by the Daymaster OAuth
 client. Live at `https://daymaster-api.robkillian.workers.dev`.
 
-- `POST /ideas` → append to the Incoming Ideas Notion page (**#40**, live)
+- `POST /ideas` → add to the Incoming Ideas Notion page, **under the "Ideas"
+  heading** (falls back to page end) (**#40**, live)
 - `GET /links` → query a favorites DB → `[{label,url}]` (**#50**, endpoint ready)
 
-Deployed from a terminal (not Git-connected): `cd worker && npx wrangler deploy`.
+**Owner-only gate (#62):** `SCOPES` includes `openid email`, so tokens carry the
+signed-in email and the Worker enforces `OWNER_EMAIL` (`wrangler.toml`) — any other
+account gets a `401`, which doubles as the "someone else tried" signal (watch
+`npx wrangler tail`). After changing the scope set, **redeploy the Worker, then use
+the in-app ⎋ Sign out → ↻ Connect Drive to re-consent** and mint an email-bearing
+token (deploy the Worker before re-consenting).
+
+Tooling: the Worker uses **wrangler v4**. Deployed from a terminal (not
+Git-connected): `cd worker && npx wrangler deploy`.
 Secrets: `npx wrangler secret put NOTION_TOKEN`. Non-secret config (incl.
 `FAVORITES_DB_ID` for #50) in `worker/wrangler.toml`. Full runbook + troubleshooting
 in [`worker/README.md`](worker/README.md). The frontend points at it via
