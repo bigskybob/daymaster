@@ -3,3 +3,7 @@ docs/
 *.log
 .DS_Store
 .vite/
+
+# Personal Daymaster store dumps / backups — never commit user data
+daymaster-data.json
+daymaster-*.json
