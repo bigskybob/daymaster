@@ -46,31 +46,57 @@ export async function ensureFolder() {
   return _folderId;
 }
 
+// All non-trashed `daymaster-data.json` files in the folder, **newest first**.
+//
+// Historically the app could end up with DUPLICATE data files in one folder (a
+// create racing a slow find, or two devices both creating before either had
+// synced). The old findDataFile grabbed an arbitrary `files[0]`, so a refresh
+// could land on a stale copy and appear to "lose" recent work, and saves could
+// diverge across copies. We now sort by modifiedTime and let loadFromDrive merge
+// every copy, so no duplicate can shadow another's data.
+export let _dataFileIds = [];
+
+export async function findDataFiles(folderId) {
+  const q = encodeURIComponent(`name='${FILENAME}' and '${folderId}' in parents and trashed=false`);
+  const res = await driveRequest(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,modifiedTime)`);
+  const data = await res.json();
+  const files = (data.files || []).slice().sort((a, b) =>
+    String(b.modifiedTime || "").localeCompare(String(a.modifiedTime || "")));
+  _dataFileIds = files.map(f => f.id);
+  return files;
+}
+
 export async function findDataFile(folderId) {
   if (_fileId) return _fileId;
-  const q = encodeURIComponent(`name='${FILENAME}' and '${folderId}' in parents and trashed=false`);
-  const res = await driveRequest(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`);
-  const data = await res.json();
-  if (data.files && data.files.length > 0) {
-    _fileId = data.files[0].id;
-    return _fileId;
-  }
-  return null;
+  const files = await findDataFiles(folderId);
+  _fileId = files.length ? files[0].id : null; // newest
+  return _fileId;
 }
 
 export async function loadFromDrive() {
   const folderId = await ensureFolder();
-  const fileId = await findDataFile(folderId);
-  if (!fileId) return null;
-  // #53 Phase 1 — record the revision we're loading so a later save can detect
-  // whether another device wrote in the meantime.
+  const files = await findDataFiles(folderId);
+  if (!files.length) { _fileId = null; return null; }
+  // The newest copy is canonical — the next save writes here, consolidating the
+  // merge back into one file. Track its revision for concurrent-write detection.
+  _fileId = files[0].id;
   try {
-    const meta = await driveRequest(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=headRevisionId`);
+    const meta = await driveRequest(`https://www.googleapis.com/drive/v3/files/${_fileId}?fields=headRevisionId`);
     _remoteRevision = (await meta.json()).headRevisionId || null;
   } catch { _remoteRevision = null; }
-  const res = await driveRequest(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`);
-  const text = await res.text();
-  return JSON.parse(text);
+  // Read + merge every copy (newest preferred on ties) so a historical duplicate
+  // can't drop recent work. Single file is the common case — one read, no merge.
+  const stores = [];
+  for (const f of files) {
+    try {
+      const res = await driveRequest(`https://www.googleapis.com/drive/v3/files/${f.id}?alt=media`);
+      stores.push(JSON.parse(await res.text()));
+    } catch (e) {
+      console.warn("Drive: skipping unreadable data-file copy", f.id, e);
+    }
+  }
+  if (!stores.length) return null;
+  return stores.reduce((acc, s) => mergeStores(acc, s));
 }
 
 // #53 Phase 1 — returns a merged store when a remote conflict was reconciled in
