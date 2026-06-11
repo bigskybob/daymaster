@@ -403,7 +403,18 @@ function App() {
   const importBackup = e => {
     const f = e.target.files[0]; if(!f) return;
     const r = new FileReader();
-    r.onload = ev => { try { applyStore(JSON.parse(ev.target.result)); } catch { alert("Invalid backup file"); } };
+    r.onload = ev => {
+      try {
+        const imported = JSON.parse(ev.target.result);
+        // A Restore is a deliberate, authoritative action: stamp it as the newest
+        // write so the cross-device merge (mergeStores picks layouts by __savedAt)
+        // can't let an older-but-wrong store — e.g. a layout from a more recent bad
+        // save — win on the next sync. Without this, restoring a backup older than
+        // the bad save brings history back (days union) but not the layout.
+        imported.__savedAt = Date.now();
+        applyStore(imported);
+      } catch { alert("Invalid backup file"); }
+    };
     r.readAsText(f);
   };
 
