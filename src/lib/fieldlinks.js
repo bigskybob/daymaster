@@ -1,9 +1,12 @@
 // Field-link engine (Phase A): pure evaluation of "this checkbox auto-checks when
 // that field is filled/checked" links. No React, no UI — data in, booleans out.
 //
-// A link: { source: { tileId, fieldId }, target: { tileId, fieldId } }
-//   source — any field: text → complete when non-empty; checkbox → when checked;
-//            derive fields → computed. target — a checkbox field (Phase B writes it).
+// A link: { target: { tileId, fieldId }, sources: [{ tileId, fieldId }], mode }
+//   sources — one or more fields combined by `mode`: "all" (every source complete →
+//             AND) or "any" (some source complete → OR, the default). A field is
+//             complete when: text → non-empty; checkbox → checked; derive → computed.
+//   target  — a checkbox field (Phase B writes it). Multiple links to the same
+//             target OR together. (Legacy single-`source` shape is still accepted.)
 // Links live at the layout level (layout.links). Field definitions come from the
 // registry's per-tile schema (tileFields), so this engine stays declarative.
 import { tileFields } from "../tiles/registry.js";
@@ -44,13 +47,30 @@ export function sourceComplete(source, allDayData, tilesById) {
   return fieldComplete(field, allDayData?.[source.tileId]);
 }
 
+// The source list of a link (supports the legacy single-`source` shape).
+export function linkSources(link) {
+  if (Array.isArray(link?.sources)) return link.sources;
+  return link?.source ? [link.source] : [];
+}
+
+// Is a single link's source condition met? "all" → every source complete (AND);
+// otherwise "any" → some source complete (OR, the default).
+export function linkSatisfied(link, allDayData, tilesById) {
+  const sources = linkSources(link);
+  if (!sources.length) return false;
+  const all = link?.mode === "all";
+  return all
+    ? sources.every(s => sourceComplete(s, allDayData, tilesById))
+    : sources.some(s => sourceComplete(s, allDayData, tilesById));
+}
+
 // Does any link currently drive (auto-check) the given target checkbox? OR across
 // every link pointing at that target.
 export function isLinkAutoOn(targetTileId, targetFieldId, links, allDayData, tilesById) {
   if (!Array.isArray(links)) return false;
   for (const link of links) {
     if (link?.target?.tileId !== targetTileId || link?.target?.fieldId !== targetFieldId) continue;
-    if (sourceComplete(link.source, allDayData, tilesById)) return true;
+    if (linkSatisfied(link, allDayData, tilesById)) return true;
   }
   return false;
 }
@@ -63,7 +83,7 @@ export function autoOnFieldIds(targetTileId, links, allDayData, tilesById) {
   for (const link of links) {
     if (link?.target?.tileId !== targetTileId) continue;
     if (on.has(link.target.fieldId)) continue;
-    if (sourceComplete(link.source, allDayData, tilesById)) on.add(link.target.fieldId);
+    if (linkSatisfied(link, allDayData, tilesById)) on.add(link.target.fieldId);
   }
   return on;
 }

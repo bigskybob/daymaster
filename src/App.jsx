@@ -19,6 +19,7 @@ import { IdeaCaptureModal } from "./ui/IdeaCaptureModal.jsx";
 import { TileLibrary } from "./ui/TileLibrary.jsx";
 import { ConfigModal } from "./ui/ConfigModal.jsx";
 import { HistoryView } from "./ui/HistoryView.jsx";
+import { LinksModal } from "./ui/LinksModal.jsx";
 import { workerConfigured } from "./lib/notion.js";
 import { APP_VERSION, BUILD_DATE } from "./version.js";
 
@@ -39,6 +40,7 @@ function App() {
   const [view, setView]           = useState("today");
   const [editMode, setEditMode]   = useState(false);
   const [configTile, setConfigTile] = useState(null);
+  const [showLinks, setShowLinks] = useState(false); // field-links manager (Phase C)
   const [dragState, setDragState] = useState(null);
   const [theme, setTheme]         = useState(() => localStorage.getItem(THEME_KEY) || "dark");
   const [font, setFont]           = useState(() => localStorage.getItem(FONT_KEY) || "mono"); // #60
@@ -293,6 +295,10 @@ function App() {
 
   const saveTileConfig = useCallback((colId, tileId, cfg) =>
     mutateLayout(l => ({ ...l, columns: l.columns.map(c => c.id===colId ? {...c, tiles:c.tiles.map(t=>t.id===tileId?{...t,config:cfg}:t)} : c) })), []);
+
+  // Field-links (Phase C) — auto-check links live on the active layout.
+  const addLink    = useCallback(link => mutateLayout(l => ({ ...l, links: [...(l.links||[]), link] })), []);
+  const removeLink = useCallback(idx  => mutateLayout(l => ({ ...l, links: (l.links||[]).filter((_, i) => i !== idx) })), []);
 
   const moveTile = useCallback((colId, from, to) =>
     mutateLayout(l => ({ ...l, columns: l.columns.map(c => {
@@ -676,6 +682,8 @@ function App() {
         editMode && headerBtn("⎘ Duplicate", duplicateLayout, false, {fontSize:"9px",padding:"4px 8px"}),
         editMode && headerBtn("✎ Rename",    renameLayout,    false, {fontSize:"9px",padding:"4px 8px"}),
         editMode && allLayoutEntries.length > 1 && headerBtn("🗑 Delete", deleteLayout, false, {fontSize:"9px",padding:"4px 8px",color:"#a08070"}),
+        // field-links (Phase C) — manage auto-check links for the active layout
+        editMode && headerBtn("🔗 Links", ()=>setShowLinks(true), (layout.links||[]).length>0, {fontSize:"9px",padding:"4px 8px"}),
         React.createElement("div", { style:{width:"1px",height:"18px",background:"var(--sep)",margin:"0 2px"} }),
         headerBtn(editMode?"✓ Done":"✎ Layout", ()=>setEditMode(e=>!e), editMode,
           editMode?{background:"var(--accent)",color:"var(--bg)",border:"1px solid var(--accent)"}:{}),
@@ -949,6 +957,15 @@ function App() {
       tiles: layout.columns.flatMap(c => c.tiles),
       onSave: cfg => { saveTileConfig(configTile.colId, configTile.tile.id, cfg); setConfigTile(null); },
       onClose: () => setConfigTile(null)
+    }),
+
+    // field-links (Phase C) — auto-check links manager for the active layout.
+    showLinks && React.createElement(LinksModal, {
+      tiles: layout.columns.flatMap(c => c.tiles),
+      links: layout.links || EMPTY_LINKS,
+      onAdd: addLink,
+      onRemove: removeLink,
+      onClose: () => setShowLinks(false),
     }),
 
     // #61 — "added" confirmation toast (auto-dismisses with justAdded). Reassures

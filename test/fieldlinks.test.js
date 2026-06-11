@@ -110,3 +110,33 @@ describe("fieldlinks — link evaluation", () => {
     expect(sourceComplete({ tileId: "pri1", fieldId: "nope" }, {}, tilesById)).toBe(false);
   });
 });
+
+describe("fieldlinks — multi-source combinations (AND / OR)", () => {
+  const tilesById = {
+    ci1: { id: "ci1", type: "checkin",   config: {} },
+    cl1: { id: "cl1", type: "checklist", config: { items: ["8:30 check-in ready"] } },
+  };
+  // "Check the morning '8:30 check-in ready' item when ALL the check-in boxes are done."
+  const allLink = [{
+    target: { tileId: "cl1", fieldId: "checks[0]" },
+    mode: "all",
+    sources: [
+      { tileId: "ci1", fieldId: "planks" },
+      { tileId: "ci1", fieldId: "food" },
+      { tileId: "ci1", fieldId: "priorities" },
+    ],
+  }];
+
+  it("mode 'all' fires only when every source is complete", () => {
+    const partial = { ci1: { planks: true, food: true, priorities: false } };
+    const full    = { ci1: { planks: true, food: true, priorities: true } };
+    expect(isLinkAutoOn("cl1", "checks[0]", allLink, partial, tilesById)).toBe(false);
+    expect(isLinkAutoOn("cl1", "checks[0]", allLink, full,    tilesById)).toBe(true);
+  });
+
+  it("mode 'any' fires when at least one source is complete", () => {
+    const anyLink = [{ ...allLink[0], mode: "any" }];
+    expect(isLinkAutoOn("cl1", "checks[0]", anyLink, { ci1: { food: true } }, tilesById)).toBe(true);
+    expect(isLinkAutoOn("cl1", "checks[0]", anyLink, { ci1: {} }, tilesById)).toBe(false);
+  });
+});
