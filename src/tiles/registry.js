@@ -132,8 +132,15 @@ export function defaultConfig(type) {
 // check-in items, ideas) are exposed as aggregate derive-sources instead, since a
 // row that may not exist can't be a stable target. Tiles absent here have no
 // addressable fields (external/connect tiles, numbers, ideas).
+// `@allchecked` (added per checkbox tile) is a derive SOURCE meaning "every checkbox
+// in THIS module is checked" — so you can link e.g. [Check-In · All boxes checked]
+// → [a Mise checklist item], i.e. complete a box when a whole module is done. It
+// reads the tile's own MANUAL data (not link-effective state) to avoid recursion.
 const FIELD_SCHEMAS = {
-  checklist:  c => (c.items || []).map((it, i) => ({ id: `checks[${i}]`, path: `checks[${i}]`, label: it || `Item ${i+1}`, kind: "checkbox" })),
+  checklist:  c => [
+    ...(c.items || []).map((it, i) => ({ id: `checks[${i}]`, path: `checks[${i}]`, label: it || `Item ${i+1}`, kind: "checkbox" })),
+    { id: "@allchecked", label: "All items checked", kind: "checkbox", derive: d => { const ch = d.checks || []; const items = c.items || []; return items.length > 0 && items.every((_, i) => !!ch[i]); } },
+  ],
   textprompt: c => [{ id: "text", path: "text", label: c.title || "Text", kind: "text" }],
   notes:      c => [{ id: "text", path: "text", label: c.title || "Notes", kind: "text" }],
   priorities: c => {
@@ -142,6 +149,7 @@ const FIELD_SCHEMAS = {
       out.push({ id: `priorities[${i}].text`, path: `priorities[${i}].text`, label: `Priority ${i+1}`, kind: "text" });
       out.push({ id: `priorities[${i}].done`, path: `priorities[${i}].done`, label: `Priority ${i+1} done`, kind: "checkbox" });
     }
+    out.push({ id: "@allchecked", label: "All priorities done", kind: "checkbox", derive: d => { const p = (d.priorities || []).filter(x => x?.text && x.text.trim()); return p.length > 0 && p.every(x => x.done); } });
     return out;
   },
   project: c => {
@@ -150,6 +158,7 @@ const FIELD_SCHEMAS = {
       out.push({ id: `items[${i}].text`, path: `items[${i}].text`, label: `Item ${i+1}`, kind: "text" });
       out.push({ id: `items[${i}].done`, path: `items[${i}].done`, label: `Item ${i+1} done`, kind: "checkbox" });
     }
+    out.push({ id: "@allchecked", label: "All items done", kind: "checkbox", derive: d => { const items = (d.items || []).map(it => typeof it === "string" ? { text: it, done: false } : (it || {})).filter(x => x.text && x.text.trim()); return items.length > 0 && items.every(x => x.done); } });
     return out;
   },
   freelist:  c => Array.from({ length: c.count || 5 }, (_, i) => ({ id: `items[${i}]`, path: `items[${i}]`, label: `Item ${i+1}`, kind: "text" })),
@@ -166,16 +175,20 @@ const FIELD_SCHEMAS = {
     ...Array.from({ length: c.countA || 5 }, (_, i) => ({ id: `itemsA[${i}]`, path: `itemsA[${i}]`, label: `${c.titleA || "List A"} ${i+1}`, kind: "text" })),
     ...Array.from({ length: c.countB || 5 }, (_, i) => ({ id: `itemsB[${i}]`, path: `itemsB[${i}]`, label: `${c.titleB || "List B"} ${i+1}`, kind: "text" })),
   ],
-  foodlog: c => (c.meals || []).flatMap((m, i) => [
-    { id: `logs[${i}].done`, path: `logs[${i}].done`, label: `${m} logged`, kind: "checkbox" },
-    { id: `logs[${i}].text`, path: `logs[${i}].text`, label: m, kind: "text" },
-  ]),
+  foodlog: c => [
+    ...(c.meals || []).flatMap((m, i) => [
+      { id: `logs[${i}].done`, path: `logs[${i}].done`, label: `${m} logged`, kind: "checkbox" },
+      { id: `logs[${i}].text`, path: `logs[${i}].text`, label: m, kind: "text" },
+    ]),
+    { id: "@allchecked", label: "All meals logged", kind: "checkbox", derive: d => { const logs = d.logs || []; const meals = c.meals || []; return meals.length > 0 && meals.every((_, i) => !!logs[i]?.done); } },
+  ],
   checkin: () => [
     { id: "planks",      path: "planks",      label: "Planks or Pushups", kind: "checkbox" },
     { id: "food",        path: "food",        label: "Food Logged",       kind: "checkbox" },
     { id: "priorities",  path: "priorities",  label: "Next Priorities",   kind: "checkbox" },
     { id: "feeling",     path: "feeling",     label: "Feeling",           kind: "text" },
     { id: "feelingNote", path: "feelingNote", label: "Feeling note",      kind: "text" },
+    { id: "@allchecked", label: "All boxes checked", kind: "checkbox", derive: d => !!(d.planks && d.food && d.priorities) },
   ],
   musiclog: () => [
     { id: "done", path: "done", label: "Made music", kind: "checkbox" },
@@ -186,9 +199,15 @@ const FIELD_SCHEMAS = {
     { id: "@anystep",  label: "Any step done",  kind: "checkbox", derive: d => (d.steps || []).some(s => s && s.done) },
     { id: "@allsteps", label: "All steps done", kind: "checkbox", derive: d => { const s = d.steps || []; return s.length > 0 && s.every(x => x && x.done); } },
   ],
-  planks:  () => [["am","AM"],["noon","Noon"],["afternoon","PM"],["evening","Eve"]].map(([k, l]) =>
-    ({ id: `planks.${k}`, path: `planks.${k}`, label: `Planks ${l}`, kind: "checkbox" })),
-  dangles: () => ["AM","Noon","PM","Eve"].map((l, i) => ({ id: `checks[${i}]`, path: `checks[${i}]`, label: `Dangle ${l}`, kind: "checkbox" })),
+  planks:  () => [
+    ...[["am","AM"],["noon","Noon"],["afternoon","PM"],["evening","Eve"]].map(([k, l]) =>
+      ({ id: `planks.${k}`, path: `planks.${k}`, label: `Planks ${l}`, kind: "checkbox" })),
+    { id: "@allchecked", label: "All slots done", kind: "checkbox", derive: d => { const p = d.planks || {}; return ["am","noon","afternoon","evening"].every(k => !!p[k]); } },
+  ],
+  dangles: () => [
+    ...["AM","Noon","PM","Eve"].map((l, i) => ({ id: `checks[${i}]`, path: `checks[${i}]`, label: `Dangle ${l}`, kind: "checkbox" })),
+    { id: "@allchecked", label: "All dangles done", kind: "checkbox", derive: d => { const ch = d.checks || []; return [0,1,2,3].every(i => !!ch[i]); } },
+  ],
   pushups: () => [{ id: "@any",      label: "Any reps logged",  kind: "checkbox", derive: d => Object.values(d.pushups || {}).some(Boolean) }],
   counter: () => [{ id: "@positive", label: "Count above zero", kind: "checkbox", derive: d => (d.count || 0) > 0 }],
 };

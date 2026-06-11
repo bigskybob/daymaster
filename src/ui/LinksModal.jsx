@@ -36,6 +36,11 @@ export function LinksModal({ tiles, links, onAdd, onRemove, onClose }) {
     setSources([...sources, { tileId, fieldId }]);
   };
   const dropSource = (i) => setSources(sources.filter((_, j) => j !== i));
+  // "Others in the same module": the target tile's OTHER checkbox fields. One click
+  // fills them as sources with mode "all" → check this box when the rest are done.
+  const [tTile, tField] = target ? target.split("::") : [null, null];
+  const siblings = targetOpts.filter(o => o.tileId === tTile && o.fieldId !== tField);
+  const fillSiblings = () => { setSources(siblings.map(o => ({ tileId: o.tileId, fieldId: o.fieldId }))); setMode("all"); };
   const canAdd = sources.length >= 1 && !!target;
   const submit = () => {
     if (!canAdd) return;
@@ -94,9 +99,13 @@ export function LinksModal({ tiles, links, onAdd, onRemove, onClose }) {
           m === "all" ? "ALL of these" : "ANY of these"))),
 
       sectionLbl("check this box"),
-      React.createElement("select", { value: target, onChange: e => setTarget(e.target.value), style: { ...inputStyle, marginBottom: "14px" } },
+      React.createElement("select", { value: target, onChange: e => setTarget(e.target.value), style: { ...inputStyle, marginBottom: target && siblings.length ? "8px" : "14px" } },
         React.createElement("option", { value: "" }, "— pick a target checkbox —"),
         targetOpts.filter(o => !sources.some(s => refKey(s) === refKey(o))).map(o => React.createElement("option", { key: refKey(o), value: refKey(o) }, o.label))),
+      // one-click: drive this box from the OTHER checkboxes in its own module (all)
+      target && siblings.length > 0 && React.createElement("button", { onClick: fillSiblings,
+        style: { ...tinyBtn, width: "100%", marginBottom: "14px", textAlign: "left", color: "var(--text-muted)" } },
+        `↳ when the other ${siblings.length} box${siblings.length > 1 ? "es" : ""} in this module are all checked`),
 
       React.createElement("div", { style: { display: "flex", gap: "8px" } },
         React.createElement("button", { onClick: submit, disabled: !canAdd,

@@ -42,12 +42,13 @@ describe("fieldlinks — field completion", () => {
 describe("fieldlinks — registry field schema", () => {
   it("checklist enumerates one checkbox per item, labeled by item text", () => {
     const fs = tileFields("checklist", { items: ["A", "B", "C"] });
-    expect(fs).toHaveLength(3);
-    expect(fs[0]).toMatchObject({ id: "checks[0]", path: "checks[0]", kind: "checkbox", label: "A" });
+    const rows = fs.filter(f => f.path);   // path fields = the items (excludes @allchecked)
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toMatchObject({ id: "checks[0]", path: "checks[0]", kind: "checkbox", label: "A" });
   });
   it("priorities yields text + done per row", () => {
     const fs = tileFields("priorities", { count: 2 });
-    expect(fs.map(f => f.id)).toEqual([
+    expect(fs.filter(f => f.path).map(f => f.id)).toEqual([
       "priorities[0].text", "priorities[0].done", "priorities[1].text", "priorities[1].done",
     ]);
   });
@@ -138,5 +139,40 @@ describe("fieldlinks — multi-source combinations (AND / OR)", () => {
     const anyLink = [{ ...allLink[0], mode: "any" }];
     expect(isLinkAutoOn("cl1", "checks[0]", anyLink, { ci1: { food: true } }, tilesById)).toBe(true);
     expect(isLinkAutoOn("cl1", "checks[0]", anyLink, { ci1: {} }, tilesById)).toBe(false);
+  });
+});
+
+describe("fieldlinks — @allchecked (module-complete source)", () => {
+  it("every checkbox tile exposes an @allchecked derive source", () => {
+    for (const t of ["checklist", "priorities", "project", "foodlog", "checkin", "dangles", "planks"]) {
+      const ac = tileFields(t, { items: ["a"], meals: ["m"], count: 1 }).find(f => f.id === "@allchecked");
+      expect(ac, t).toBeTruthy();
+      expect(typeof ac.derive, t).toBe("function");
+      expect(ac.path, `${t} @allchecked must be source-only`).toBeUndefined();
+    }
+  });
+
+  it("check-in @allchecked fires only when planks+food+priorities are all checked", () => {
+    const ac = tileFields("checkin", {}).find(f => f.id === "@allchecked");
+    expect(fieldComplete(ac, { planks: true, food: true, priorities: true })).toBe(true);
+    expect(fieldComplete(ac, { planks: true, food: true, priorities: false })).toBe(false);
+    expect(fieldComplete(ac, {})).toBe(false);
+  });
+
+  it("checklist @allchecked needs every item checked (and at least one item)", () => {
+    const ac = tileFields("checklist", { items: ["a", "b"] }).find(f => f.id === "@allchecked");
+    expect(fieldComplete(ac, { checks: [true, true] })).toBe(true);
+    expect(fieldComplete(ac, { checks: [true, false] })).toBe(false);
+    expect(fieldComplete(tileFields("checklist", { items: [] }).find(f => f.id === "@allchecked"), { checks: [] })).toBe(false);
+  });
+
+  it("end-to-end: complete a checklist item when a check-in's boxes are all done", () => {
+    const tilesById = {
+      ci1: { id: "ci1", type: "checkin",   config: {} },
+      cl1: { id: "cl1", type: "checklist", config: { items: ["8:30 check-in ready"] } },
+    };
+    const links = [{ target: { tileId: "cl1", fieldId: "checks[0]" }, sources: [{ tileId: "ci1", fieldId: "@allchecked" }] }];
+    expect(isLinkAutoOn("cl1", "checks[0]", links, { ci1: { planks: true, food: true,  priorities: true } }, tilesById)).toBe(true);
+    expect(isLinkAutoOn("cl1", "checks[0]", links, { ci1: { planks: true, food: false, priorities: true } }, tilesById)).toBe(false);
   });
 });
