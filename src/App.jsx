@@ -211,7 +211,16 @@ function App() {
     // testing, regardless of stored state. We still apply the underlying store so a
     // skip/finish reveals the real layout and the splash dismisses.
     if (new URLSearchParams(window.location.search).get("onboarding") === "1") setOnboarding(true);
-    applyStore(local ? JSON.parse(local) : emptyStore());
+    // Guard the parse: a corrupt/partial local cache must not throw here, which
+    // would abort the effect before applyStore dismisses the loading splash —
+    // bricking the app at "Loading…". Fall back to a fresh store; the Drive
+    // resync on auth restores the real data.
+    let localStore = null;
+    if (local) {
+      try { localStore = JSON.parse(local); }
+      catch (e) { console.warn("Local store cache is corrupt — ignoring it", e); }
+    }
+    applyStore(localStore || emptyStore());
     // Auto-init auth if Google API loaded
     const tryAuth = () => {
       if (window.google?.accounts?.oauth2 && CLIENT_ID && CLIENT_ID !== "YOUR_GOOGLE_CLIENT_ID_HERE") {
