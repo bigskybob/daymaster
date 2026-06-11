@@ -1,5 +1,35 @@
 import { describe, it, expect } from "vitest";
-import { buildDefaultLayout, emptyStore, migrateLayout } from "../src/lib/store.js";
+import { buildDefaultLayout, emptyStore, migrateLayout, buildOnboardingLayout } from "../src/lib/store.js";
+
+describe("buildOnboardingLayout — non-destructive on an existing store", () => {
+  it("first run (no base) seeds default with empty history", () => {
+    const s = buildOnboardingLayout({ q1: [] });
+    expect(s.activeLayout).toBe("default");
+    expect(s.days).toEqual({});
+    expect(s.layouts.default).toBeTruthy();
+  });
+
+  it("re-run preserves history + existing layouts, adds a 'setup' layout", () => {
+    const base = {
+      version: 6,
+      activeLayout: "default",
+      days: { "2026-06-01": { someTile: { _type: "textprompt", text: "keep me" } } },
+      layouts: {
+        default: { name: "Daily", columns: [{ id: "c", tiles: [{ id: "t1", type: "notes", config: {} }] }] },
+        custom:  { name: "Custom", columns: [{ id: "c", tiles: [{ id: "t2", type: "notes", config: {} }] }] },
+      },
+    };
+    const s = buildOnboardingLayout({ q1: ["health"], fitness: { planks: true } }, base);
+    // history preserved verbatim
+    expect(s.days["2026-06-01"].someTile.text).toBe("keep me");
+    // existing layouts preserved, not clobbered
+    expect(s.layouts.default).toBe(base.layouts.default);
+    expect(s.layouts.custom).toBe(base.layouts.custom);
+    // seeded layout added under a new key + activated
+    expect(s.layouts.setup).toBeTruthy();
+    expect(s.activeLayout).toBe("setup");
+  });
+});
 
 describe("emptyStore / buildDefaultLayout", () => {
   it("builds a default layout with columns and version 6", () => {

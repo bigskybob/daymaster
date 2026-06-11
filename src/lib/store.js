@@ -130,7 +130,13 @@ export const ONBOARDING_CHECKIN_SLOTS = [
 // Mise-en-place anchors center (migrateLayout enforces this too), then the rest are
 // placed largest-group-first into the currently-shortest column (#32). Indivisible
 // groups (fitness trackers, check-ins) stay together; singletons fill the gaps.
-export function buildOnboardingLayout(answers = {}) {
+// `base` is the user's CURRENT store (or null/empty for a true first run). When it
+// already holds content (history or non-empty layouts), onboarding must be
+// NON-DESTRUCTIVE: it preserves every existing day + layout and adds the seeded
+// layout as a new "setup" layout, switching to it. Only a genuinely empty/first-run
+// store gets the seeded layout written straight to `default`. (Previously this
+// returned `days:{}` + a sole `default`, which wiped history + layouts on re-run.)
+export function buildOnboardingLayout(answers = {}, base = null) {
   const q1        = new Set(answers.q1 || []);
   const fitness   = answers.fitness || {};
   const checkins  = answers.checkins || {};
@@ -210,7 +216,27 @@ export function buildOnboardingLayout(answers = {}) {
     .sort((a, b) => (b.g.length - a.g.length) || (a.i - b.i))
     .forEach(({ g }) => placeBalanced(g));
 
-  return { layouts: { default: { name: "Daily", columns } }, activeLayout: "default", days: {}, version: 6 };
+  const seeded = { name: "Daily", columns };
+
+  // Does the existing store hold anything worth preserving?
+  const hasContent = base && (
+    Object.keys(base.days || {}).length > 0 ||
+    Object.values(base.layouts || {}).some(l => (l.columns || []).some(c => (c.tiles || []).length > 0))
+  );
+
+  if (hasContent) {
+    // Re-run on a built Daymaster: keep ALL history + layouts; add the seeded layout
+    // as "setup" and switch to it. Re-running again just overwrites "setup".
+    return {
+      ...base,
+      days: base.days || {},
+      layouts: { ...base.layouts, setup: seeded },
+      activeLayout: "setup",
+      version: 6,
+    };
+  }
+
+  return { layouts: { default: seeded }, activeLayout: "default", days: {}, version: 6 };
 }
 
 // One-shot, idempotent layout migrations for existing users.

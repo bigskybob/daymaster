@@ -425,9 +425,15 @@ function App() {
   // #61 — Beta Onboarding (Phase 2). Overlays the guided interview for a true first
   // run, when forced via ?onboarding=1, or from the in-app "Re-run setup" entry.
   // Commit-on-finish: only Finish seeds + persists (applyStore → save effect). Skip
-  // and Back never write — Finish REPLACES the current layout (locked decision).
+  // and Back never write. On a RETURNING user (localStorage wasn't pristine at mount)
+  // Finish is non-destructive — buildOnboardingLayout preserves all history + layouts
+  // and adds a seeded "setup" layout. Only a true first run seeds straight to default.
   if (onboarding) return React.createElement(Onboarding, {
-    onComplete: (answers) => { applyStore(buildOnboardingLayout(answers)); setOnboarding(false); setShowLayoutTip(true); },
+    onComplete: (answers) => {
+      const base = firstRunRef.current ? null : store;
+      applyStore(buildOnboardingLayout(answers, base));
+      setOnboarding(false); setShowLayoutTip(true);
+    },
     onSkip: () => setOnboarding(false),
     // #61 — the optional Connect step wires to the app's existing Google auth.
     onConnect: () => initGoogleAuth(),
