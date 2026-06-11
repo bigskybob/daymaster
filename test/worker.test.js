@@ -54,11 +54,17 @@ describe("worker: CORS + auth", () => {
 });
 
 describe("worker: /ideas (#40)", () => {
-  it("appends a paragraph to the Notion page", async () => {
+  it("adds a paragraph under the Ideas heading", async () => {
     let notionBody = null;
     global.fetch = mockFetch([
       goodToken(),
-      ["api.notion.com/v1/blocks/page-abc/children", (_u, opts) => { notionBody = JSON.parse(opts.body); return ok({ object: "list" }); }],
+      ["api.notion.com/v1/blocks/page-abc/children", (_u, opts) => {
+        if ((opts.method || "GET") === "GET") return ok({ results: [
+          { id: "b-intro", type: "paragraph", paragraph: { rich_text: [] } },
+          { id: "b-ideas", type: "heading_2", heading_2: { rich_text: [{ plain_text: "Ideas" }] } },
+        ] });
+        notionBody = JSON.parse(opts.body); return ok({ object: "list" });
+      }],
     ]);
     const res = await worker.fetch(new Request("https://w/ideas", {
       method: "POST", headers: { Authorization: "Bearer t", "Content-Type": "application/json" },
@@ -67,6 +73,26 @@ describe("worker: /ideas (#40)", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
     expect(notionBody.children[0].paragraph.rich_text[0].text.content).toBe("ship the worker"); // trimmed
+    expect(notionBody.after).toBe("b-ideas"); // lands under the Ideas heading, not page end
+  });
+
+  it("falls back to the page end when there is no Ideas heading", async () => {
+    let notionBody = null;
+    global.fetch = mockFetch([
+      goodToken(),
+      ["api.notion.com/v1/blocks/page-abc/children", (_u, opts) => {
+        if ((opts.method || "GET") === "GET") return ok({ results: [
+          { id: "b-intro", type: "paragraph", paragraph: { rich_text: [] } },
+        ] });
+        notionBody = JSON.parse(opts.body); return ok({ object: "list" });
+      }],
+    ]);
+    const res = await worker.fetch(new Request("https://w/ideas", {
+      method: "POST", headers: { Authorization: "Bearer t", "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "no heading here" }),
+    }), ENV);
+    expect(res.status).toBe(200);
+    expect(notionBody.after).toBeUndefined();
   });
 
   it("400s on empty text", async () => {

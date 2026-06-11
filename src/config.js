@@ -15,5 +15,7 @@ export const FONT_KEY   = "daymaster-font"; // #60 — selected font style
 export const BG_KEY     = "daymaster-bg";   // #25 — background image URL
 export const REMIND_KEY = "daymaster-remind"; // #14 — check-in reminders on/off
 // #38 — added calendar.readonly for inline Google Calendar widget.
-// First load after this change will trigger a re-consent prompt because the scope set widened.
-export const SCOPES = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/calendar.readonly";
+// #62 — added openid+email so access tokens carry the signed-in email; this lets the
+// API Worker enforce OWNER_EMAIL (owner-only gate + a clean "someone else tried" signal).
+// Widening the scope set triggers a one-time re-consent prompt on next sign-in.
+export const SCOPES = "openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/calendar.readonly";

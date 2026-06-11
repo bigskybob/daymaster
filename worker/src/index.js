@@ -6,7 +6,8 @@
 // answers requests that carry a valid Google access token minted by the app.
 //
 // Endpoints (all require `Authorization: Bearer <google_access_token>`):
-//   POST /ideas   { text }   → append a paragraph to the Incoming Ideas page   (#40)
+//   POST /ideas   { text }   → add a paragraph under the Incoming Ideas page's
+//                              "Ideas" heading (falls back to page end)          (#40)
 //   GET  /links              → query a Notion DB → [{label,url}]                (#50)
 //
 // Env (set via wrangler.toml [vars] and `wrangler secret put`):
@@ -68,6 +69,22 @@ async function notion(env, path, method, body) {
   return { ok: res.ok, status: res.status, data };
 }
 
+// Find the id of the "Ideas" heading on the inbox page so new ideas land under it
+// rather than at the very end of the page (after the processing log) — #40 follow-up.
+// Returns null if the page can't be read or has no such heading, in which case the
+// caller appends to the end (legacy behavior).
+async function findIdeasAnchor(env) {
+  const r = await notion(env, `/blocks/${env.INCOMING_IDEAS_PAGE_ID}/children`, "GET");
+  if (!r.ok) return null;
+  for (const block of r.data.results || []) {
+    const h = block.type === "heading_2" && block.heading_2;
+    if (!h) continue;
+    const text = (h.rich_text || []).map(t => t.plain_text).join("").trim().toLowerCase();
+    if (text === "ideas") return block.id;
+  }
+  return null;
+}
+
 // Map a Notion page → {label, url}: label from the title property, url from a
 // "url"-typed property if present, else the page's own Notion URL.
 export function pageToLink(page) {
@@ -102,13 +119,16 @@ export default {
         const text = (body && body.text || "").trim();
         if (!text) return json(env, 400, { error: "text required" });
         if (!env.INCOMING_IDEAS_PAGE_ID) return json(env, 500, { error: "INCOMING_IDEAS_PAGE_ID not set" });
-        const r = await notion(env, `/blocks/${env.INCOMING_IDEAS_PAGE_ID}/children`, "PATCH", {
+        const anchor = await findIdeasAnchor(env);
+        const payload = {
           children: [{
             object: "block",
             type: "paragraph",
             paragraph: { rich_text: [{ type: "text", text: { content: text } }] },
           }],
-        });
+        };
+        if (anchor) payload.after = anchor; // land under "## Ideas", not after the processing log
+        const r = await notion(env, `/blocks/${env.INCOMING_IDEAS_PAGE_ID}/children`, "PATCH", payload);
         return json(env, r.ok ? 200 : r.status, r.ok ? { ok: true } : { error: "notion", detail: r.data });
       }
 

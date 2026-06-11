@@ -1,7 +1,7 @@
 // App shell: TileLibrary, ConfigModal, HistoryView, SyncDot, and the App component.
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { CLIENT_ID, APP_URL, DRIVE_FOLDER, LOCAL_KEY, THEME_KEY, FONT_KEY, BG_KEY, REMIND_KEY, SCOPES } from "./config.js";
-import { setToken } from "./lib/token.js";
+import { getToken, setToken } from "./lib/token.js";
 import { loadFromDrive, saveToDrive } from "./lib/drive.js";
 import { fetchCalendarList, clearCalendarListCache } from "./lib/calendar.js";
 import { buildDefaultLayout, emptyStore, migrateLayout } from "./lib/store.js";
@@ -677,6 +677,23 @@ function App() {
     }
   }
 
+  // Sign out of Google/Drive sync. Revoking the access token clears Google's
+  // record of the granted scopes, so the next "Connect Drive" shows a fresh
+  // consent screen — which is what you want after the scope set changes (#62).
+  // Local data is left untouched; only the live session token is dropped.
+  function signOut() {
+    const tok = getToken();
+    try {
+      if (tok && window.google?.accounts?.oauth2?.revoke) {
+        google.accounts.oauth2.revoke(tok, () => {});
+      }
+    } catch(e) { console.warn("Token revoke failed", e); }
+    setToken(null);
+    window.__daymasterGrantedScopes = undefined;
+    setAuthState("idle");
+    setAuthEpoch(e => e + 1);
+  }
+
   // ── Load ──────────────────────────────────────────────────────────────────
 
   async function syncDown() {
@@ -1195,6 +1212,8 @@ function App() {
           style:{background:"#1a2a1a",border:"1px solid #3a6a3a",color:"#7ac97a",padding:"5px 12px",borderRadius:"4px",cursor:"pointer",fontFamily:"var(--font-body)",fontSize:"10px"}
         }, authState==="no-config"?"⚙ Add Client ID":"↻ Connect Drive"),
         authState==="authing" && React.createElement("span", { style:{color:"var(--text-muted)",fontSize:"10px"} }, "Connecting..."),
+        // Sign out of Drive sync; revokes the token so the next connect re-consents (#62).
+        isAuthed && headerBtn("⎋ Sign out", signOut, false, { title:"Disconnect Google / Drive sync" }),
         headerBtn("⬇ Backup", exportBackup),
         React.createElement("label", { style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",padding:"5px 12px",borderRadius:"4px",cursor:"pointer",fontFamily:"var(--font-body)",fontSize:"10px"} },
           "⬆ Restore",
