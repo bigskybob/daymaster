@@ -22,6 +22,10 @@ import { HistoryView } from "./ui/HistoryView.jsx";
 import { workerConfigured } from "./lib/notion.js";
 import { APP_VERSION, BUILD_DATE } from "./version.js";
 
+// Stable empty array so tiles don't re-render on every parent render when a layout
+// has no field-links defined.
+const EMPTY_LINKS = [];
+
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 
@@ -872,6 +876,7 @@ function App() {
                   onConfigPatch: patch => saveTileConfig(col.id, tile.id, {...tile.config, ...patch}),
                   allDayData: todayData,
                   tilesById,
+                  links: layout.links || EMPTY_LINKS,
                   isAuthed,
                   authEpoch,
                   onReauth: () => initGoogleAuth(true),
@@ -898,7 +903,7 @@ function App() {
                       onRemove: () => removeTile(col.id, tile.id),
                       onConfig: () => setConfigTile({tile, colId:col.id}),
                       onConfigPatch: patch => saveTileConfig(col.id, tile.id, {...tile.config, ...patch}),
-                      allDayData: todayData, tilesById, isAuthed, authEpoch,
+                      allDayData: todayData, tilesById, links: layout.links || EMPTY_LINKS, isAuthed, authEpoch,
                       onReauth: () => initGoogleAuth(true),
                     })
                   )

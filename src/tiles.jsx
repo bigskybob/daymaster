@@ -1,8 +1,9 @@
-// All tile renderers + the RenderTile dispatch + AddProjectButton.
+// All tile renderers + AddProjectButton. (RenderTile dispatch lives in tiles/registry.js.)
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { CardShell, AutoTA, BulletList, CB, iconBtnStyle, EmojiPicker } from "./ui.jsx";
+import { CardShell, AutoTA, BulletList, CB, LinkedCheck, iconBtnStyle, EmojiPicker } from "./ui.jsx";
 import { FullscreenTimer } from "./ui/FullscreenTimer.jsx";
 import { evaluateRule, TILE_EVENTS, checkinIsDone, deriveCheckinSlot, checkinScheduleMin, currentSlotKey } from "./lib/rules.js";
+import { isLinkAutoOn } from "./lib/fieldlinks.js";
 import { uid, todayKey, fmtDate, DAYS, MONTHS } from "./lib/helpers.js";
 import { fetchTodayEvents, fetchCalendarList, fmtEventTime, clearCalendarListCache } from "./lib/calendar.js";
 import { playBeep, playDone } from "./lib/audio.js";
@@ -12,13 +13,14 @@ import { listLists, listTasks, addTask, completeTask } from "./lib/mstodo.js";
 
 // ─── TILE RENDERERS ───────────────────────────────────────────────────────────
 
-export function TileChecklist({ config, data={}, onChange, editMode, onRemove, onConfig, allDayData, tilesById }) {
+export function TileChecklist({ config, data={}, onChange, editMode, onRemove, onConfig, allDayData, tilesById, tileId, links }) {
   const manualChecks = data.checks || config.items.map(()=>false);
 
-  // Evaluate auto-rules for each item
+  // Auto state per item = legacy auto-rule OR a field-link driving this checkbox.
   const autoChecks = config.items.map((item, i) => {
     const rule = config.rules?.[i];
-    return rule ? evaluateRule(rule, allDayData||{}, tilesById) : false;
+    const ruleAuto = rule ? evaluateRule(rule, allDayData||{}, tilesById) : false;
+    return ruleAuto || isLinkAutoOn(tileId, `checks[${i}]`, links, allDayData||{}, tilesById);
   });
 
   // Effective state: auto OR manual
@@ -87,7 +89,7 @@ export function TileTextPrompt({ config, data={}, onChange, editMode, onRemove, 
   );
 }
 
-export function TilePriorities({ config, data={}, onChange, editMode, onRemove, onConfig, tilesById }) {
+export function TilePriorities({ config, data={}, onChange, editMode, onRemove, onConfig, tilesById, tileId, links, allDayData }) {
   const count = config.count||3;
   const priorities = data.priorities || Array(count).fill(null).map(()=>({text:"",done:false}));
   const added = data.added || ["","","",""];
@@ -97,9 +99,10 @@ export function TilePriorities({ config, data={}, onChange, editMode, onRemove, 
     priorities.map((p,i) =>
       React.createElement("div", { key:i, style:{display:"flex",alignItems:"flex-start",gap:"6px",marginBottom:"6px"} },
         React.createElement("span", { style:{fontFamily:"var(--font-display)",fontSize:"16px",color:"var(--accent)",width:"18px",flexShrink:0,lineHeight:1.2} }, i+1),
-        React.createElement("input", { type:"checkbox", checked:!!p.done,
-          onChange: e => { const n=[...priorities]; n[i]={...p,done:e.target.checked}; onChange({...data,priorities:n}); },
-          style:{marginTop:"4px",flexShrink:0,accentColor:"#c8a96e",width:"13px",height:"13px"} }),
+        React.createElement(LinkedCheck, { manual:!!p.done,
+          auto: isLinkAutoOn(tileId, `priorities[${i}].done`, links, allDayData||{}, tilesById),
+          onChange: v => { const n=[...priorities]; n[i]={...p,done:v}; onChange({...data,priorities:n}); },
+          style:{marginTop:"4px"} }),
         React.createElement(AutoTA, { value:p.text, placeholder:i===0?"☞ Eat this frog first...":"Priority...",
           onChange: v => { const n=[...priorities]; n[i]={...p,text:v}; onChange({...data,priorities:n}); },
           style: p.done?{textDecoration:"line-through",color:"var(--text-muted)"}:{} }),
@@ -120,7 +123,7 @@ export function TilePriorities({ config, data={}, onChange, editMode, onRemove, 
   );
 }
 
-export function TileProject({ config, data={}, onChange, editMode, onRemove, onConfig, tileId, allDayData }) {
+export function TileProject({ config, data={}, onChange, editMode, onRemove, onConfig, tileId, allDayData, tilesById, links }) {
   const count = config.count||4;
   // #52 — project rows are completable: {text, done}. Lazy-convert legacy string[].
   const rawItems = data.items || Array(count).fill("");
@@ -184,9 +187,10 @@ export function TileProject({ config, data={}, onChange, editMode, onRemove, onC
       React.createElement("div", { style:{display:"flex",flexDirection:"column",gap:"4px"} },
         items.map((it,i) =>
           React.createElement("div", { key:i, style:{display:"flex",alignItems:"flex-start",gap:"6px"} },
-            React.createElement("input", { type:"checkbox", checked:!!it.done,
-              onChange: e => { const n=[...items]; n[i]={...it,done:e.target.checked}; onChange({...data,items:n}); },
-              style:{marginTop:"4px",flexShrink:0,accentColor:"var(--accent)",width:"13px",height:"13px",cursor:"pointer"} }),
+            React.createElement(LinkedCheck, { manual:!!it.done, accent:"var(--accent)",
+              auto: isLinkAutoOn(tileId, `items[${i}].done`, links, allDayData||{}, tilesById),
+              onChange: v => { const n=[...items]; n[i]={...it,done:v}; onChange({...data,items:n}); },
+              style:{marginTop:"4px"} }),
             React.createElement(AutoTA, { value:it.text||"", placeholder:"Task...",
               onChange: v => { const n=[...items]; n[i]={...it,text:v}; onChange({...data,items:n}); },
               style: it.done ? {textDecoration:"line-through",color:"var(--text-muted)"} : {} })
@@ -345,7 +349,7 @@ export function TileGuidedAM({ config, data={}, onChange, editMode, onRemove, on
   );
 }
 
-export function TileCheckIn({ config, data={}, onChange, editMode, onRemove, allDayData }) {
+export function TileCheckIn({ config, data={}, onChange, editMode, onRemove, allDayData, tileId, links, tilesById }) {
   const c = config.color||"var(--border)";
 
   // #43 — items shape changed from string[] to {text,done}[]; convert legacy data lazily.
@@ -359,7 +363,11 @@ export function TileCheckIn({ config, data={}, onChange, editMode, onRemove, all
   const planksSlot = config.planksSlot || deriveCheckinSlot(config.title);
   const planksAutoChecked = planksSlot && planksSlot !== "none"
     && !!(allDayData?.planks?.planks?.[planksSlot]);
-  const planksEffective = !!data.planks || planksAutoChecked;
+  // Field-links (Phase B): a link may also drive any of the check-in boxes. OR the
+  // planks-slot auto with the link auto; food/priorities get link auto directly.
+  const planksAuto = planksAutoChecked || isLinkAutoOn(tileId, "planks", links, allDayData||{}, tilesById);
+  const foodAuto   = isLinkAutoOn(tileId, "food",       links, allDayData||{}, tilesById);
+  const priAuto    = isLinkAutoOn(tileId, "priorities", links, allDayData||{}, tilesById);
 
   // #37 — feeling (emoji) and feelingNote (text) are paired and either may be set.
   // Completion logic lives in the shared checkinIsDone so #35's reordering agrees.
@@ -416,30 +424,11 @@ export function TileCheckIn({ config, data={}, onChange, editMode, onRemove, all
     ),
     React.createElement("div", { style:{padding:"10px",background:"var(--bg-card)",display:"grid",gridTemplateColumns:planning?"1fr 1fr":"1fr",gap:"10px"} },
       React.createElement("div", null,
-        // #45 — planks checkbox shows effective state (auto OR manual). Auto-checked-only
-        // is disabled to mirror the TileChecklist auto-rule UX. ⚡ marker indicates auto.
-        React.createElement("label", {
-          style:{display:"flex",alignItems:"flex-start",gap:"7px",
-            cursor: planksAutoChecked && !data.planks ? "default" : "pointer",
-            padding:"3px 0",color:"var(--text-dim)",fontSize:"12px",lineHeight:1.5,
-            opacity: planksAutoChecked && !data.planks ? 0.85 : 1}
-        },
-          React.createElement("div", { style:{position:"relative",flexShrink:0,marginTop:"3px"} },
-            React.createElement("input", { type:"checkbox",
-              checked: planksEffective,
-              disabled: planksAutoChecked && !data.planks,
-              onChange: e => onChange({...data, planks: e.target.checked}),
-              style:{accentColor: planksAutoChecked ? "#8a7040" : "#c8a96e", width:"13px", height:"13px",
-                cursor: planksAutoChecked && !data.planks ? "default" : "pointer"}
-            }),
-            planksAutoChecked && React.createElement("span", {
-              style:{position:"absolute",top:"-1px",right:"-8px",fontSize:"8px",color:"var(--accent)",pointerEvents:"none",lineHeight:1}
-            }, "⚡")
-          ),
-          React.createElement("span", null, "Planks or Pushups")
-        ),
-        React.createElement(CB, { checked:!!data.food, onChange:v=>onChange({...data,food:v}), label:"Food Logged" }),
-        planning && React.createElement(CB, { checked:!!data.priorities, onChange:v=>onChange({...data,priorities:v}), label:"Next Priorities" }),
+        // #45 / field-links — planks box auto-checks from the planks tile slot OR a
+        // link; CB renders the effective state + ⚡ marker, locked when auto-only.
+        React.createElement(CB, { checked:!!data.planks, auto:planksAuto, onChange:v=>onChange({...data,planks:v}), label:"Planks or Pushups" }),
+        React.createElement(CB, { checked:!!data.food, auto:foodAuto, onChange:v=>onChange({...data,food:v}), label:"Food Logged" }),
+        planning && React.createElement(CB, { checked:!!data.priorities, auto:priAuto, onChange:v=>onChange({...data,priorities:v}), label:"Next Priorities" }),
         React.createElement("div", { style:{marginTop:"8px"} },
           React.createElement("div", { style:{fontSize:"9px",color:"var(--text-muted)",marginBottom:"5px",letterSpacing:"1px",textTransform:"uppercase"} }, "How I'm feeling"),
           React.createElement(EmojiPicker, { value:data.feeling||"", onChange:v=>onChange({...data,feeling:v}) }),
@@ -515,12 +504,16 @@ export function TilePushups({ config, data={}, onChange, editMode, onRemove, onC
   );
 }
 
-export function TilePlanks({ config, data={}, onChange, editMode, onRemove, onConfig }) {
+export function TilePlanks({ config, data={}, onChange, editMode, onRemove, onConfig, tileId, links, allDayData, tilesById }) {
   const slots = [["am","AM"],["noon","Noon"],["afternoon","PM"],["evening","Eve"]];
   const p = data.planks||{};
   const [timerSecs, setTimerSecs] = useState(data.timerSecs||120);
   const [running, setRunning] = useState(false);
-  const doneCount = slots.filter(([k])=>p[k]).length;
+  // Field-links: a slot can be driven on by a link (planks.<slot>). Effective =
+  // manual OR link-auto; auto-only slots show ⚡ and aren't toggled off by a tap.
+  const slotAuto = k => isLinkAutoOn(tileId, `planks.${k}`, links, allDayData||{}, tilesById);
+  const eff = k => !!p[k] || slotAuto(k);
+  const doneCount = slots.filter(([k])=>eff(k)).length;
 
   const adjustTimer = delta => {
     const next = Math.max(10, Math.min(600, timerSecs + delta));
@@ -553,12 +546,15 @@ export function TilePlanks({ config, data={}, onChange, editMode, onRemove, onCo
     React.createElement(CardShell, { title:config.title||"Planks", accent:"#4a7a4a", editMode, onRemove, onConfig },
       // Session slots
       React.createElement("div", { style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"5px",marginBottom:"10px"} },
-        slots.map(([k,label]) =>
-          React.createElement("button", { key:k, onClick:()=>onChange({...data,planks:{...p,[k]:!p[k]}}),
-            style:{background:p[k]?"#2a3a2a":"var(--bg-hover)",border:`1px solid ${p[k]?"#4a7a4a":"var(--border)"}`,
-              color:p[k]?"#7ac97a":"#555",fontFamily:"var(--font-body)",fontSize:"11px",
-              padding:"7px 4px",borderRadius:"3px",cursor:"pointer"} }, label)
-        )
+        slots.map(([k,label]) => {
+          const on = eff(k), auto = slotAuto(k);
+          return React.createElement("button", { key:k,
+            onClick:()=>{ if (auto && !p[k]) return; onChange({...data,planks:{...p,[k]:!p[k]}}); },
+            title: auto ? "Auto-checked by a link" : undefined,
+            style:{background:on?"#2a3a2a":"var(--bg-hover)",border:`1px solid ${on?"#4a7a4a":"var(--border)"}`,
+              color:on?"#7ac97a":"#555",fontFamily:"var(--font-body)",fontSize:"11px",
+              padding:"7px 4px",borderRadius:"3px",cursor:auto&&!p[k]?"default":"pointer"} }, auto ? `⚡ ${label}` : label);
+        })
       ),
       // Progress
       doneCount > 0 && React.createElement("div", { style:{fontSize:"9px",color:"#4a7a4a",marginBottom:"8px",letterSpacing:"0.5px"} },
@@ -586,14 +582,18 @@ export function TilePlanks({ config, data={}, onChange, editMode, onRemove, onCo
   );
 }
 
-export function TileDangles({ config, data={}, onChange, editMode, onRemove, onConfig }) {
+export function TileDangles({ config, data={}, onChange, editMode, onRemove, onConfig, tileId, links, allDayData, tilesById }) {
   // #44 — slots map array indices to time-of-day labels (AM, Noon, PM, Eve).
   // Data shape stays positional (data.checks is still a 4-element bool array): index 0=AM, 1=Noon, 2=PM, 3=Eve.
   const SLOT_LABELS = ["AM", "Noon", "PM", "Eve"];
   const SLOT_KEYS   = ["am", "noon", "afternoon", "evening"];
   const checks = data.checks || [false, false, false, false];
   const [running, setRunning] = useState(false);
-  const doneCount = checks.filter(Boolean).length;
+  // Field-links: effective per slot = manual OR a link driving checks[i]. Display +
+  // completion use effective; the timer/start logic stays on the manual `checks`.
+  const idxAuto = i => isLinkAutoOn(tileId, `checks[${i}]`, links, allDayData||{}, tilesById);
+  const effChecks = checks.map((d, i) => d || idxAuto(i));
+  const doneCount = effChecks.filter(Boolean).length;
   const allDone = doneCount === 4;
 
   // Slot to use when starting / on timer complete: prefer the current time-of-day slot,
@@ -634,7 +634,7 @@ export function TileDangles({ config, data={}, onChange, editMode, onRemove, onC
         ),
         // Progress dots
         React.createElement("div", { style:{display:"flex",gap:"5px"} },
-          checks.map((done,i) => React.createElement("div", { key:i,
+          effChecks.map((done,i) => React.createElement("div", { key:i,
             style:{width:"10px",height:"10px",borderRadius:"50%",
               background: done ? "#4a7a4a" : "#2a2a2a",
               border:`1px solid ${done?"#4a7a4a":"#333"}`,
@@ -644,18 +644,20 @@ export function TileDangles({ config, data={}, onChange, editMode, onRemove, onC
       ),
       // 4 checkboxes — each = 30 sec hang, labeled AM/Noon/PM/Eve (#44)
       React.createElement("div", { style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"6px",marginBottom:"10px"} },
-        checks.map((done, i) =>
-          React.createElement("button", { key:i,
-            onClick: () => { const n=[...checks]; n[i]=!n[i]; onChange({...data,checks:n}); },
+        effChecks.map((done, i) => {
+          const auto = idxAuto(i);
+          return React.createElement("button", { key:i,
+            onClick: () => { if (auto && !checks[i]) return; const n=[...checks]; n[i]=!n[i]; onChange({...data,checks:n}); },
+            title: auto ? "Auto-checked by a link" : undefined,
             style:{background:done?"#1a2a1a":"var(--bg-card)",border:`1px solid ${done?"#4a7a4a":"var(--border)"}`,
-              borderRadius:"5px",padding:"8px 4px",cursor:"pointer",
+              borderRadius:"5px",padding:"8px 4px",cursor:auto&&!checks[i]?"default":"pointer",
               display:"flex",flexDirection:"column",alignItems:"center",gap:"3px"}
           },
-            React.createElement("span", { style:{fontSize:"9px",color:done?"#4a7a4a":"#888",fontFamily:"var(--font-body)",letterSpacing:"0.5px"} }, SLOT_LABELS[i]),
+            React.createElement("span", { style:{fontSize:"9px",color:done?"#4a7a4a":"#888",fontFamily:"var(--font-body)",letterSpacing:"0.5px"} }, auto ? `⚡${SLOT_LABELS[i]}` : SLOT_LABELS[i]),
             React.createElement("span", { style:{fontSize:"16px"} }, done ? "✓" : "○"),
             React.createElement("span", { style:{fontSize:"9px",color:done?"#4a7a4a":"#444",fontFamily:"var(--font-body)",letterSpacing:"0.5px"} }, "0:30")
-          )
-        )
+          );
+        })
       ),
       // Start button
       React.createElement("div", { style:{height:"1px",background:"var(--border-dim)",marginBottom:"10px"} }),
@@ -715,7 +717,7 @@ export function TileNumbers({ config, data={}, editMode, onRemove, onConfig, all
   );
 }
 
-export function TileFoodLog({ config, data={}, onChange, editMode, onRemove, onConfig }) {
+export function TileFoodLog({ config, data={}, onChange, editMode, onRemove, onConfig, tileId, links, allDayData, tilesById }) {
   const meals = config.meals || ["Breakfast","Lunch","Dinner","Snack"];
   const logs = data.logs || meals.map(()=>({ text:"", done:false }));
   const doneCount = logs.filter(l=>l.done).length;
@@ -741,9 +743,10 @@ export function TileFoodLog({ config, data={}, onChange, editMode, onRemove, onC
     ),
     meals.map((meal, i) =>
       React.createElement("div", { key:i, style:{display:"flex",alignItems:"flex-start",gap:"7px",marginBottom:"6px"} },
-        React.createElement("input", { type:"checkbox", checked:!!logs[i]?.done,
-          onChange: e => { const n=[...logs]; n[i]={...n[i],done:e.target.checked}; onChange({...data,logs:n}); },
-          style:{marginTop:"4px",flexShrink:0,accentColor:"#c8670a",width:"13px",height:"13px"} }),
+        React.createElement(LinkedCheck, { manual:!!logs[i]?.done, accent:"#c8670a",
+          auto: isLinkAutoOn(tileId, `logs[${i}].done`, links, allDayData||{}, tilesById),
+          onChange: v => { const n=[...logs]; n[i]={...n[i],done:v}; onChange({...data,logs:n}); },
+          style:{marginTop:"4px"} }),
         React.createElement("div", { style:{flex:1} },
           React.createElement("div", { style:{fontSize:"9px",color:logs[i]?.done?"#4a7a4a":"#666",letterSpacing:"0.5px",marginBottom:"2px"} }, meal),
           React.createElement(AutoTA, {
@@ -1126,14 +1129,15 @@ export function TileIdeas({ config, editMode, onRemove, onConfig, onConfigPatch 
 // #11 — Music creation daily log. One checkbox ("Made music today") + a free-form note.
 // Both are optional; check + empty note is fine, note + unchecked is fine.
 // When checked, the accent flips green to match the completion pattern used elsewhere.
-export function TileMusicLog({ config, data={}, onChange, editMode, onRemove, onConfig }) {
+export function TileMusicLog({ config, data={}, onChange, editMode, onRemove, onConfig, tileId, links, allDayData, tilesById }) {
   const checked = !!data.done;
-  const accent = checked ? "#4a7a4a" : (config.accent || "#8a6abf");
+  const auto = isLinkAutoOn(tileId, "done", links, allDayData||{}, tilesById);
+  const accent = (checked || auto) ? "#4a7a4a" : (config.accent || "#8a6abf");
   return React.createElement(CardShell, {
     title: config.title || "Music Today", accent, editMode, onRemove, onConfig
   },
     React.createElement(CB, {
-      checked,
+      checked, auto,
       onChange: v => onChange({...data, done: v}),
       label: "Made music today"
     }),

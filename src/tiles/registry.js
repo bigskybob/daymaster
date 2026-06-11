@@ -204,7 +204,7 @@ export function tileFields(type, config = {}) {
 // through; each tile component destructures only what it needs (extras are ignored).
 export function RenderTile({
   tile, data, onChange, editMode, onRemove, onConfig, onConfigPatch,
-  allDayData, tilesById, isAuthed, authEpoch, onReauth,
+  allDayData, tilesById, links, isAuthed, authEpoch, onReauth,
 }) {
   const entry = TILES[tile.type];
   if (!entry) {
@@ -216,6 +216,7 @@ export function RenderTile({
     onChange: d => onChange({ ...d, _type: tile.type }),
     data, editMode, onRemove, onConfig, onConfigPatch,
     allDayData, tilesById, tileId: tile.id,
+    links, // field-links (Phase B) — checkbox tiles read this to auto-check targets
     isAuthed, authEpoch, onReauth,
   });
 }

@@ -46,13 +46,30 @@ export function BulletList({ items, onChange, placeholder="..." }) {
   );
 }
 
-export function CB({ checked, onChange, label, strike=false }) {
+// Field-links Phase B: a checkbox that may be auto-driven by a link. `manual` is
+// the user's stored value; `auto` is whether a link currently drives it on.
+// Effective = manual OR auto; when auto-only the box is locked + flagged ⚡
+// (same affordance the checklist auto-rules already use). onChange(bool).
+export function LinkedCheck({ manual, auto, onChange, accent="#c8a96e", style={} }) {
+  const effective = manual || auto;
+  const locked = auto && !manual;
+  return React.createElement("div", { style:{position:"relative",flexShrink:0,...style} },
+    React.createElement("input", { type:"checkbox", checked: effective, disabled: locked,
+      onChange: e => onChange(e.target.checked),
+      style:{accentColor: auto?"#8a7040":accent, width:"13px", height:"13px", cursor: locked?"default":"pointer"} }),
+    auto && React.createElement("span", { title:"Auto-checked by a link",
+      style:{position:"absolute",top:"-1px",right:"-8px",fontSize:"8px",color:"var(--accent)",pointerEvents:"none",lineHeight:1} }, "⚡")
+  );
+}
+
+export function CB({ checked, onChange, label, strike=false, auto=false }) {
+  const effective = checked || auto;
+  const locked = auto && !checked;
   return React.createElement("label", {
-    style:{display:"flex",alignItems:"flex-start",gap:"7px",cursor:"pointer",padding:"3px 0",color:"var(--text-dim)",fontSize:"12px",lineHeight:1.5}
+    style:{display:"flex",alignItems:"flex-start",gap:"7px",cursor:locked?"default":"pointer",padding:"3px 0",color:"var(--text-dim)",fontSize:"12px",lineHeight:1.5}
   },
-    React.createElement("input", { type:"checkbox", checked, onChange:e=>onChange(e.target.checked),
-      style:{marginTop:"3px",flexShrink:0,accentColor:"#c8a96e",width:"13px",height:"13px"} }),
-    React.createElement("span", { style: strike&&checked ? {textDecoration:"line-through",color:"var(--text-muted)"} : {} }, label)
+    React.createElement(LinkedCheck, { manual:checked, auto, onChange, style:{marginTop:"3px"} }),
+    React.createElement("span", { style: strike&&effective ? {textDecoration:"line-through",color:"var(--text-muted)"} : {} }, label)
   );
 }
 
