@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { loadFromDrive, findDataFiles } from "../src/lib/drive.js";
+import { loadFromDrive, saveToDrive, findDataFiles } from "../src/lib/drive.js";
 import { setToken } from "../src/lib/token.js";
 
 // Drive persistence runs against a stubbed global `fetch` so we never hit Google.
@@ -75,5 +75,34 @@ describe("drive: duplicate data files", () => {
     expect(merged.days["2026-6-04"]).toEqual({ __mtime: 100, note: "only-in-old" });
     // Contested day resolved to the newer __mtime (the new file), not the old one.
     expect(merged.days["2026-6-11"].note).toBe("today-from-new");
+  });
+
+  it("trashes stale duplicates after a consolidating save (#63)", async () => {
+    const trashed = [];
+    const j = (body) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+    global.fetch = vi.fn(async (url, opts = {}) => {
+      const u = String(url);
+      if (u.includes("mimeType%3D")) return j(FOLDER);                                  // ensureFolder
+      if (u.includes("daymaster-data.json")) return j({ files: [                         // findDataFiles
+        { id: "new", modifiedTime: "2026-06-11T16:30:00Z" },
+        { id: "old", modifiedTime: "2026-06-04T20:00:00Z" },
+      ] });
+      if (u.includes("upload/drive/v3/files/new")) return j({ headRevisionId: "rev2" }); // save PATCH upload
+      if (u.includes("files/new?fields=headRevisionId")) return j({ headRevisionId: "rev-new" });
+      if (u.includes("files/new?alt=media")) return j(NEW_FILE);
+      if (u.includes("files/old?alt=media")) return j(OLD_FILE);
+      if (u.includes("files/old?fields=id")) {                                           // trash the duplicate
+        trashed.push({ id: "old", method: opts.method, body: JSON.parse(opts.body) });
+        return j({ id: "old" });
+      }
+      return new Response("unmatched: " + u, { status: 500 });
+    });
+
+    await loadFromDrive();           // canonical = new, stale = [old]
+    await saveToDrive({ days: {} }); // consolidating save → retires the duplicate
+
+    expect(trashed).toHaveLength(1);
+    expect(trashed[0].method).toBe("PATCH");
+    expect(trashed[0].body).toEqual({ trashed: true }); // reversible trash, not delete
   });
 });

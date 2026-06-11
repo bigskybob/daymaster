@@ -55,6 +55,9 @@ export async function ensureFolder() {
 // diverge across copies. We now sort by modifiedTime and let loadFromDrive merge
 // every copy, so no duplicate can shadow another's data.
 export let _dataFileIds = [];
+// #63 — non-canonical duplicate copies seen at load, retired (trashed) after the
+// next successful consolidating save. Empty in the normal single-file case.
+export let _staleDuplicateIds = [];
 
 export async function findDataFiles(folderId) {
   const q = encodeURIComponent(`name='${FILENAME}' and '${folderId}' in parents and trashed=false`);
@@ -76,10 +79,13 @@ export async function findDataFile(folderId) {
 export async function loadFromDrive() {
   const folderId = await ensureFolder();
   const files = await findDataFiles(folderId);
-  if (!files.length) { _fileId = null; return null; }
+  if (!files.length) { _fileId = null; _staleDuplicateIds = []; return null; }
   // The newest copy is canonical — the next save writes here, consolidating the
   // merge back into one file. Track its revision for concurrent-write detection.
   _fileId = files[0].id;
+  // #63 — the other copies' data is folded into the merge below, so queue them to
+  // be trashed after the next consolidating save (collapsing the folder to one file).
+  _staleDuplicateIds = files.slice(1).map(f => f.id);
   try {
     const meta = await driveRequest(`https://www.googleapis.com/drive/v3/files/${_fileId}?fields=headRevisionId`);
     _remoteRevision = (await meta.json()).headRevisionId || null;
@@ -97,6 +103,29 @@ export async function loadFromDrive() {
   }
   if (!stores.length) return null;
   return stores.reduce((acc, s) => mergeStores(acc, s));
+}
+
+// #63 — move a file to Drive trash (reversible ~30 days). Used to retire duplicate
+// data files once their contents have been merged into the canonical copy.
+export async function trashFile(fileId) {
+  await driveRequest(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=id`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ trashed: true }),
+  });
+}
+
+// #63 — after a consolidating save, retire the duplicate copies whose data is now
+// folded into the canonical file. Best-effort and reversible: failures are re-queued
+// for a later save and never block persistence. Runs only when duplicates exist.
+export async function trashStaleDuplicates() {
+  if (!_staleDuplicateIds.length) return;
+  const ids = _staleDuplicateIds;
+  _staleDuplicateIds = [];
+  const results = await Promise.allSettled(ids.map(id => trashFile(id)));
+  const ok = results.filter(r => r.status === "fulfilled").length;
+  if (ok) console.info(`Drive: retired ${ok} duplicate data file(s) after consolidation`);
+  results.forEach((r, i) => { if (r.status === "rejected") _staleDuplicateIds.push(ids[i]); });
 }
 
 // #53 Phase 1 — returns a merged store when a remote conflict was reconciled in
@@ -130,6 +159,8 @@ export async function saveToDrive(store) {
       headers: { "Content-Type": "application/json" }
     });
     try { _remoteRevision = (await patched.json()).headRevisionId || _remoteRevision; } catch {}
+    // #63 — the union is now safely on the canonical file; collapse the duplicates.
+    await trashStaleDuplicates();
   } else {
     // Create new file with metadata
     const meta = { name: FILENAME, parents: [folderId] };
