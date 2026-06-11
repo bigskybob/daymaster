@@ -123,6 +123,82 @@ export function defaultConfig(type) {
   return entry ? structuredClone(entry.defaultConfig) : { title: type };
 }
 
+// ─── FIELD SCHEMA (field-links Phase A) ───────────────────────────────────────
+// Per-tile enumeration of addressable fields for the field-link system: every
+// checkbox/text field a link can read (source) or drive (target). kind ∈ text |
+// checkbox. A field with `path` is read at data[path] (dot/bracket path) and is
+// targetable; a field with `derive(data)` is a computed SOURCE only (no path).
+// Config-sized lists expand to one field per row; data-sized lists (planner steps,
+// check-in items, ideas) are exposed as aggregate derive-sources instead, since a
+// row that may not exist can't be a stable target. Tiles absent here have no
+// addressable fields (external/connect tiles, numbers, ideas).
+const FIELD_SCHEMAS = {
+  checklist:  c => (c.items || []).map((it, i) => ({ id: `checks[${i}]`, path: `checks[${i}]`, label: it || `Item ${i+1}`, kind: "checkbox" })),
+  textprompt: c => [{ id: "text", path: "text", label: c.title || "Text", kind: "text" }],
+  notes:      c => [{ id: "text", path: "text", label: c.title || "Notes", kind: "text" }],
+  priorities: c => {
+    const n = c.count || 3, out = [];
+    for (let i = 0; i < n; i++) {
+      out.push({ id: `priorities[${i}].text`, path: `priorities[${i}].text`, label: `Priority ${i+1}`, kind: "text" });
+      out.push({ id: `priorities[${i}].done`, path: `priorities[${i}].done`, label: `Priority ${i+1} done`, kind: "checkbox" });
+    }
+    return out;
+  },
+  project: c => {
+    const n = c.count || 4, out = [];
+    for (let i = 0; i < n; i++) {
+      out.push({ id: `items[${i}].text`, path: `items[${i}].text`, label: `Item ${i+1}`, kind: "text" });
+      out.push({ id: `items[${i}].done`, path: `items[${i}].done`, label: `Item ${i+1} done`, kind: "checkbox" });
+    }
+    return out;
+  },
+  freelist:  c => Array.from({ length: c.count || 5 }, (_, i) => ({ id: `items[${i}]`, path: `items[${i}]`, label: `Item ${i+1}`, kind: "text" })),
+  twoprompt: c => [
+    { id: "textA", path: "textA", label: c.titleA || "Prompt A", kind: "text" },
+    { id: "textB", path: "textB", label: c.titleB || "Prompt B", kind: "text" },
+  ],
+  guidedam: c => [
+    { id: "textA", path: "textA", label: c.titleA || "Gratitude", kind: "text" },
+    { id: "textB", path: "textB", label: c.titleB || "Intention", kind: "text" },
+    { id: "textC", path: "textC", label: c.titleC || "Priority", kind: "text" },
+  ],
+  twolists: c => [
+    ...Array.from({ length: c.countA || 5 }, (_, i) => ({ id: `itemsA[${i}]`, path: `itemsA[${i}]`, label: `${c.titleA || "List A"} ${i+1}`, kind: "text" })),
+    ...Array.from({ length: c.countB || 5 }, (_, i) => ({ id: `itemsB[${i}]`, path: `itemsB[${i}]`, label: `${c.titleB || "List B"} ${i+1}`, kind: "text" })),
+  ],
+  foodlog: c => (c.meals || []).flatMap((m, i) => [
+    { id: `logs[${i}].done`, path: `logs[${i}].done`, label: `${m} logged`, kind: "checkbox" },
+    { id: `logs[${i}].text`, path: `logs[${i}].text`, label: m, kind: "text" },
+  ]),
+  checkin: () => [
+    { id: "planks",      path: "planks",      label: "Planks or Pushups", kind: "checkbox" },
+    { id: "food",        path: "food",        label: "Food Logged",       kind: "checkbox" },
+    { id: "priorities",  path: "priorities",  label: "Next Priorities",   kind: "checkbox" },
+    { id: "feeling",     path: "feeling",     label: "Feeling",           kind: "text" },
+    { id: "feelingNote", path: "feelingNote", label: "Feeling note",      kind: "text" },
+  ],
+  musiclog: () => [
+    { id: "done", path: "done", label: "Made music", kind: "checkbox" },
+    { id: "note", path: "note", label: "Note",       kind: "text" },
+  ],
+  planner: () => [
+    { id: "build",     path: "build", label: "Build name",     kind: "text" },
+    { id: "@anystep",  label: "Any step done",  kind: "checkbox", derive: d => (d.steps || []).some(s => s && s.done) },
+    { id: "@allsteps", label: "All steps done", kind: "checkbox", derive: d => { const s = d.steps || []; return s.length > 0 && s.every(x => x && x.done); } },
+  ],
+  planks:  () => [["am","AM"],["noon","Noon"],["afternoon","PM"],["evening","Eve"]].map(([k, l]) =>
+    ({ id: `planks.${k}`, path: `planks.${k}`, label: `Planks ${l}`, kind: "checkbox" })),
+  dangles: () => ["AM","Noon","PM","Eve"].map((l, i) => ({ id: `checks[${i}]`, path: `checks[${i}]`, label: `Dangle ${l}`, kind: "checkbox" })),
+  pushups: () => [{ id: "@any",      label: "Any reps logged",  kind: "checkbox", derive: d => Object.values(d.pushups || {}).some(Boolean) }],
+  counter: () => [{ id: "@positive", label: "Count above zero", kind: "checkbox", derive: d => (d.count || 0) > 0 }],
+};
+
+// Addressable fields for a tile instance. [] for tiles with none.
+export function tileFields(type, config = {}) {
+  const fn = FIELD_SCHEMAS[type];
+  return fn ? fn(config || {}) : [];
+}
+
 // ─── TILE DISPATCH ────────────────────────────────────────────────────────────
 // Registry lookup replaces the old per-type switch. Every available prop is passed
 // through; each tile component destructures only what it needs (extras are ignored).
