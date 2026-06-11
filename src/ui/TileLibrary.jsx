@@ -27,16 +27,16 @@ export function TileLibrary({ onAdd, columns }) {
   })).filter(g => g.tiles.length > 0);
 
   const tileBtn = ([type, { label, icon }]) =>
-    React.createElement("button", { key:type, onClick:()=>onAdd(col,type),
+    React.createElement("button", { key:type, onClick:()=>onAdd(col,type), title:label,
       style:{background:"var(--bg-card)",border:"1px solid var(--border)",color:"var(--text-dim)",fontFamily:"var(--font-body)",
-        fontSize:"10px",padding:"8px 6px",borderRadius:"4px",cursor:"pointer",textAlign:"center",
-        display:"flex",flexDirection:"column",alignItems:"center",gap:"3px"} },
-      React.createElement("span", { style:{fontSize:"16px"} }, icon),
+        fontSize:"9px",lineHeight:1.15,padding:"5px 4px",borderRadius:"4px",cursor:"pointer",textAlign:"center",
+        display:"flex",flexDirection:"column",alignItems:"center",gap:"2px",minHeight:"40px",justifyContent:"center"} },
+      React.createElement("span", { style:{fontSize:"13px"} }, icon),
       label
     );
 
-  return React.createElement("div", { style:{background:"var(--bg-hover)",border:"1px solid var(--border)",borderRadius:"6px",padding:"14px",marginBottom:"14px"} },
-    React.createElement("div", { style:{display:"flex",alignItems:"center",gap:"10px",marginBottom:"10px",flexWrap:"wrap"} },
+  return React.createElement("div", { style:{background:"var(--bg-hover)",border:"1px solid var(--border)",borderRadius:"6px",padding:"12px",marginBottom:"12px"} },
+    React.createElement("div", { style:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"10px",flexWrap:"wrap"} },
       React.createElement("span", { style:{fontFamily:"var(--font-display)",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-muted)"} }, "Add to column:"),
       columns.map(c => React.createElement("button", { key:c.id, onClick:()=>setCol(c.id),
         style:{background:col===c.id?"var(--accent-dim)":"var(--bg-card)",border:`1px solid ${col===c.id?"var(--accent)":"var(--border)"}`,
@@ -44,11 +44,13 @@ export function TileLibrary({ onAdd, columns }) {
         c.id
       ))
     ),
-    React.createElement("div", { style:{display:"flex",flexDirection:"column",gap:"12px"} },
+    // Families flow side-by-side (responsive) so the picker stays short; tiles wrap
+    // densely within each family. Collapses to fewer columns on narrow screens.
+    React.createElement("div", { style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"10px 18px",alignItems:"start"} },
       byFamily.map(g =>
         React.createElement("div", { key:g.key },
           React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"8px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-faint)",marginBottom:"6px"} }, g.label),
-          React.createElement("div", { style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(90px,1fr))",gap:"6px"} },
+          React.createElement("div", { style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(64px,1fr))",gap:"5px"} },
             g.tiles.map(tileBtn)
           )
         )
