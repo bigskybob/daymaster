@@ -1,5 +1,6 @@
 // Store shape, default layout, and idempotent migrations (Phase 0 of #53).
 import { deriveCheckinSlot } from "./rules.js";
+import { defaultConfig } from "../tiles/registry.js";
 
 export function buildDefaultLayout() {
   return {
@@ -96,6 +97,120 @@ export function buildDefaultLayout() {
 
 export function emptyStore() {
   return { layouts: { default: buildDefaultLayout() }, activeLayout: "default", days: {}, version: 6 };
+}
+
+// #61 — canonical check-in slots offered by the onboarding interview. Each is an
+// independent toggle with an editable default time; `planksSlot` carries the
+// AM/PM intent (so checkinScheduleMin parses the bare clock correctly) and drives
+// the #44/#45 auto-tick + #35 stale logic. The recommended default is the first
+// three on, evening off — but any subset is valid (e.g. evening only).
+export const ONBOARDING_CHECKIN_SLOTS = [
+  { key: "morning",   label: "Morning",   time: "8:30",  planksSlot: "am",        default: true  },
+  { key: "midday",    label: "Midday",    time: "11:00", planksSlot: "noon",      default: true  },
+  { key: "afternoon", label: "Afternoon", time: "2:00",  planksSlot: "afternoon", default: true  },
+  { key: "evening",   label: "Evening",   time: "6:00",  planksSlot: "evening",   default: false },
+];
+
+// #61 — Beta Onboarding (Phase 2): build a personalized starter store from the
+// guided-interview answers, per the LOCKED answer→tile map. Reuses the polished
+// tile definitions from buildDefaultLayout() (by id) so seeded tiles get the same
+// configs/auto-rules as the canonical layout; check-ins are built fresh from the
+// interview (times / capture mode / notify). Called only when the user FINISHES
+// the flow (commit-on-finish — back/skip never persist).
+//
+// answers shape:
+//   { q1: string[],                                   // "what matters" chips
+//     fitness: { planks, pushups, dangles },          // gated by q1 "health"
+//     calendar: { connect },                          // gated by q1 "calendar"
+//     project: { name },                              // gated by q1 "projects"
+//     checkins: { want, slots: [{time, planksSlot}], capture, notify } }
+//
+// Placement: rather than inherit each tile's canonical column (which piled the
+// commonly-picked tiles into the center), tiles are seeded into a BALANCED layout —
+// Mise-en-place anchors center (migrateLayout enforces this too), then the rest are
+// placed largest-group-first into the currently-shortest column (#32). Indivisible
+// groups (fitness trackers, check-ins) stay together; singletons fill the gaps.
+export function buildOnboardingLayout(answers = {}) {
+  const q1        = new Set(answers.q1 || []);
+  const fitness   = answers.fitness || {};
+  const checkins  = answers.checkins || {};
+  const projName  = (answers.project?.name || "").trim();
+  const connectCal = answers.calendar?.connect !== false; // default yes once on the step
+
+  // Canonical tile definitions, keyed by id, to seed polished configs + auto-rules.
+  const byId = {};
+  for (const col of buildDefaultLayout().columns) for (const t of col.tiles) byId[t.id] = t;
+  // Clone a canonical tile (deep config clone), applying optional config overrides.
+  const clone = (id, over) => ({ ...byId[id], config: { ...byId[id].config, ...(over || {}) } });
+
+  // Empty 3-column shell (same ids/widths as the default layout).
+  const columns = [
+    { id: "col-left",   width: 22, tiles: [] },
+    { id: "col-center", width: 44, tiles: [] },
+    { id: "col-right",  width: 24, tiles: [] },
+  ];
+  const center = columns[1];
+  // #32 — append a group of tiles together into the currently-shortest column
+  // (ties → leftmost). Keeps logically-grouped tiles intact while balancing counts.
+  const placeBalanced = group => {
+    let best = columns[0];
+    for (const c of columns) if (c.tiles.length < best.tiles.length) best = c;
+    best.tiles.push(...group);
+  };
+
+  // Mise-en-place is anchored to the top of center (locked baseline; #39 migration
+  // would move it here regardless).
+  center.tiles.push(clone("morning"));
+
+  // Build the placement groups (each kept together). Baseline is always present.
+  const groups = [[clone("priorities")], [clone("quote")]];
+  if (q1.has("priorities")) groups.push([clone("gratint")]);
+  if (q1.has("calendar") && connectCal) groups.push([clone("calendar")]);
+  if (q1.has("food")) groups.push([clone("foodlog")]);
+  if (q1.has("projects")) groups.push([clone("proj1", projName ? { title: projName, defaultOpen: true } : null)]);
+  if (q1.has("health")) {
+    groups.push([clone("exercise")]);
+    const trackers = [];
+    if (fitness.planks)  trackers.push(clone("planks"));
+    if (fitness.pushups) trackers.push(clone("pushups"));
+    if (fitness.dangles) trackers.push(clone("dangles"));
+    if (trackers.length) groups.push(trackers);
+  }
+  // #15/#16 — Building/learning: AI Ideas + AI Planner (not in the default layout).
+  if (q1.has("building")) groups.push([
+    { id: "ideas1",   type: "ideas",   config: defaultConfig("ideas") },
+    { id: "planner1", type: "planner", config: defaultConfig("planner") },
+  ]);
+  // Check-ins — built fresh from the interview (own locked dimension): one tile per
+  // enabled slot with its editable time + AM/PM-correct planksSlot, plus the shared
+  // capture mode and per-check-in notify. Falls back to the recommended defaults.
+  if (checkins.want) {
+    const slots = (checkins.slots && checkins.slots.length)
+      ? checkins.slots
+      : ONBOARDING_CHECKIN_SLOTS.filter(s => s.default).map(s => ({ time: s.time, planksSlot: s.planksSlot }));
+    const colors = ["#8B4513", "#B8860B", "#1a4a7a", "#4a4a6a"];
+    const checkinTiles = slots.map((s, i) => ({
+      id: `checkin${i + 1}`,
+      type: "checkin",
+      config: {
+        title: String(s.time).trim() || `Check-in ${i + 1}`,
+        color: colors[i % colors.length],
+        planksSlot: s.planksSlot || "none",
+        capture: checkins.capture === "feelings" ? "feelings" : "both",
+        notify: !!checkins.notify,
+      },
+    }));
+    if (checkinTiles.length) groups.push(checkinTiles);
+  }
+
+  // Largest groups first → the most even distribution given indivisible blocks.
+  // Stable sort (index tiebreak) keeps the build deterministic.
+  groups
+    .map((g, i) => ({ g, i }))
+    .sort((a, b) => (b.g.length - a.g.length) || (a.i - b.i))
+    .forEach(({ g }) => placeBalanced(g));
+
+  return { layouts: { default: { name: "Daily", columns } }, activeLayout: "default", days: {}, version: 6 };
 }
 
 // One-shot, idempotent layout migrations for existing users.

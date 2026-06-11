@@ -365,6 +365,10 @@ export function TileCheckIn({ config, data={}, onChange, editMode, onRemove, all
   // Completion logic lives in the shared checkinIsDone so #35's reordering agrees.
   const isDone = checkinIsDone(config, data, allDayData);
 
+  // #61 — capture mode: "feelings" hides the planning ("Next") column + the
+  // "Next Priorities" flag, leaving a feelings-only check-in. Default = both.
+  const planning = config.capture !== "feelings";
+
   // Frog = priority #1 (index 0) only
   const priData = Object.values(allDayData||{}).find(t=>t?._type==="priorities");
   const frog = priData?.priorities?.[0]?.text && !priData?.priorities?.[0]?.done
@@ -410,7 +414,7 @@ export function TileCheckIn({ config, data={}, onChange, editMode, onRemove, all
     },
       React.createElement("span", { style:{fontSize:"10px",color:"#4a7a4a"} }, "✓ Frog done")
     ),
-    React.createElement("div", { style:{padding:"10px",background:"var(--bg-card)",display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"} },
+    React.createElement("div", { style:{padding:"10px",background:"var(--bg-card)",display:"grid",gridTemplateColumns:planning?"1fr 1fr":"1fr",gap:"10px"} },
       React.createElement("div", null,
         // #45 — planks checkbox shows effective state (auto OR manual). Auto-checked-only
         // is disabled to mirror the TileChecklist auto-rule UX. ⚡ marker indicates auto.
@@ -435,7 +439,7 @@ export function TileCheckIn({ config, data={}, onChange, editMode, onRemove, all
           React.createElement("span", null, "Planks or Pushups")
         ),
         React.createElement(CB, { checked:!!data.food, onChange:v=>onChange({...data,food:v}), label:"Food Logged" }),
-        React.createElement(CB, { checked:!!data.priorities, onChange:v=>onChange({...data,priorities:v}), label:"Next Priorities" }),
+        planning && React.createElement(CB, { checked:!!data.priorities, onChange:v=>onChange({...data,priorities:v}), label:"Next Priorities" }),
         React.createElement("div", { style:{marginTop:"8px"} },
           React.createElement("div", { style:{fontSize:"9px",color:"var(--text-muted)",marginBottom:"5px",letterSpacing:"1px",textTransform:"uppercase"} }, "How I'm feeling"),
           React.createElement(EmojiPicker, { value:data.feeling||"", onChange:v=>onChange({...data,feeling:v}) }),
@@ -450,7 +454,7 @@ export function TileCheckIn({ config, data={}, onChange, editMode, onRemove, all
           )
         )
       ),
-      React.createElement("div", null,
+      planning && React.createElement("div", null,
         React.createElement("div", { style:{fontSize:"9px",color:"var(--text-muted)",marginBottom:"5px",letterSpacing:"1px",textTransform:"uppercase"} }, "Next 2.5 hrs"),
         // #43 — tickable rows: checkbox + auto-expanding text. Data shape is {text,done}[].
         React.createElement("div", { style:{display:"flex",flexDirection:"column",gap:"4px"} },
@@ -1298,36 +1302,5 @@ export function TileEmbed({ config, editMode, onRemove, onConfig }) {
           "Open ⚙ Configure and paste an embed URL (e.g. a Spotify or YouTube embed link)."));
 }
 
-// ─── TILE DISPATCH ────────────────────────────────────────────────────────────
-
-export function RenderTile({ tile, data, onChange, editMode, onRemove, onConfig, onConfigPatch, allDayData, tilesById, isAuthed, authEpoch, onReauth }) {
-  const wrapped = d => onChange({ ...d, _type: tile.type });
-  const props = { config:tile.config, data, onChange:wrapped, editMode, onRemove, onConfig, allDayData };
-  switch(tile.type) {
-    case "checklist":  return React.createElement(TileChecklist, {...props, allDayData, tilesById});
-    case "textprompt": return React.createElement(TileTextPrompt, props);
-    case "priorities": return React.createElement(TilePriorities, {...props, tilesById});
-    case "project":    return React.createElement(TileProject, {...props, tileId: tile.id, allDayData});
-    case "freelist":   return React.createElement(TileFreeList, props);
-    case "twoprompt":  return React.createElement(TileTwoPrompt, props);
-    case "guidedam":   return React.createElement(TileGuidedAM, props);
-    case "checkin":    return React.createElement(TileCheckIn, props);
-    case "twolists":   return React.createElement(TileTwoLists, props);
-    case "pushups":    return React.createElement(TilePushups, props);
-    case "planks":     return React.createElement(TilePlanks, props);
-    case "numbers":    return React.createElement(TileNumbers, props);
-    case "notes":      return React.createElement(TileNotes, props);
-    case "foodlog":    return React.createElement(TileFoodLog, props);
-    case "dangles":    return React.createElement(TileDangles, props);
-    case "musiclog":   return React.createElement(TileMusicLog, props);
-    case "quote":      return React.createElement(TileQuote, props);
-    case "counter":    return React.createElement(TileCounter, props);
-    case "gcal":       return React.createElement(TileGcal, {...props, isAuthed, authEpoch, onReauth});
-    case "notionlinks":return React.createElement(TileNotionLinks, {...props, isAuthed});
-    case "ideas":      return React.createElement(TileIdeas, {...props, onConfigPatch});
-    case "planner":    return React.createElement(TilePlanner, props);
-    case "mstodo":     return React.createElement(TileMsTodo, {...props, onConfigPatch});
-    case "embed":      return React.createElement(TileEmbed, props);
-    default: return React.createElement("div", { style:{color:"var(--text-muted)",padding:"12px",fontSize:"11px"} }, `Unknown: ${tile.type}`);
-  }
-}
+// RenderTile (the type→component dispatch) now lives in tiles/registry.js, driven
+// by the self-describing TILES registry rather than a switch here.

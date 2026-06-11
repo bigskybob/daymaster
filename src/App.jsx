@@ -1,563 +1,36 @@
-// App shell: TileLibrary, ConfigModal, HistoryView, SyncDot, and the App component.
+// App shell: the App component — auth, store/sync, layout editing, and the
+// header/grid render. Presentational pieces (modals, history, library, sync dot)
+// live in ./ui/*; pure helpers in ./lib/*.
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { CLIENT_ID, APP_URL, DRIVE_FOLDER, LOCAL_KEY, THEME_KEY, FONT_KEY, BG_KEY, REMIND_KEY, SCOPES } from "./config.js";
-import { getToken, setToken } from "./lib/token.js";
+import { CLIENT_ID, LOCAL_KEY, THEME_KEY, FONT_KEY, BG_KEY, REMIND_KEY } from "./config.js";
+import { useGoogleAuth } from "./lib/useGoogleAuth.js";
 import { loadFromDrive, saveToDrive } from "./lib/drive.js";
-import { fetchCalendarList, clearCalendarListCache } from "./lib/calendar.js";
-import { buildDefaultLayout, emptyStore, migrateLayout } from "./lib/store.js";
+import { emptyStore, migrateLayout, buildOnboardingLayout } from "./lib/store.js";
 import { mergeStores } from "./lib/sync.js";
-import { evaluateRule, TILE_EVENTS, checkinIsDone, checkinScheduleMin, deriveCheckinSlot } from "./lib/rules.js";
-import { DAYS, MONTHS, todayKey, fmtDate, uid } from "./lib/helpers.js";
-import { CardShell, AutoTA, CB, iconBtnStyle, EmojiPicker } from "./ui.jsx";
-import { TILE_TYPES, defaultConfig } from "./tiles/registry.js";
-import { RenderTile, AddProjectButton } from "./tiles.jsx";
-import { sendIdea, workerConfigured } from "./lib/notion.js";
+import { checkinIsDone, checkinScheduleMin } from "./lib/rules.js";
+import { DAYS, MONTHS, todayKey, uid } from "./lib/helpers.js";
+import { THEMES, FONTS } from "./lib/themes.js";
+import { tileComplete, tileTitle } from "./lib/tileStatus.js";
+import { TILE_TYPES, defaultConfig, RenderTile } from "./tiles/registry.js";
+import { AddProjectButton } from "./tiles.jsx";
+import { Onboarding } from "./ui/Onboarding.jsx";
+import { SyncDot } from "./ui/SyncDot.jsx";
+import { IdeaCaptureModal } from "./ui/IdeaCaptureModal.jsx";
+import { TileLibrary } from "./ui/TileLibrary.jsx";
+import { ConfigModal } from "./ui/ConfigModal.jsx";
+import { HistoryView } from "./ui/HistoryView.jsx";
+import { workerConfigured } from "./lib/notion.js";
 import { APP_VERSION, BUILD_DATE } from "./version.js";
 
-// #59 — selectable color themes. Each key has a matching [data-theme="<key>"]
-// CSS-variable block in the global <style>. The header theme picker writes the
-// key to state → persisted to localStorage (THEME_KEY) and set on documentElement.
-const THEMES = [
-  { key: "dark",   name: "🌙 Dark" },
-  { key: "light",  name: "☀️ Light" },
-  { key: "forest", name: "🌲 Forest" },
-  { key: "desert", name: "🏜️ Desert" },
-  { key: "ocean",  name: "🌊 Ocean" },
-];
-
-// #60 — selectable font styles. Each key (except "mono") has a [data-font="<key>"]
-// CSS block swapping --font-body / --font-display. Same pattern as THEMES.
-const FONTS = [
-  { key: "mono",    name: "Aa Mono" },
-  { key: "sans",    name: "Aa Sans" },
-  { key: "serif",   name: "Aa Serif" },
-  { key: "rounded", name: "Aa Rounded" },
-  { key: "slab",    name: "Aa Slab" },
-];
-
-// #2 / #54 — is a tile "complete" for the day? Used by Focus mode to collapse
-// finished sections into a one-line summary. Conservative: types we don't model
-// (e.g. checklist with auto-rules) are never treated as complete, so they stay
-// fully visible. Covers the morning-input + daily-flow tiles that benefit most.
-function tileComplete(tile, d = {}, allDayData = {}) {
-  switch (tile.type) {
-    case "checkin":    return checkinIsDone(tile.config, d, allDayData);
-    case "textprompt": return !!(d.text && d.text.trim());
-    case "twoprompt":  return !!(d.textA?.trim() && d.textB?.trim());
-    case "guidedam":   return !!(d.textA?.trim() && d.textB?.trim() && d.textC?.trim());
-    case "priorities": {
-      const p = (d.priorities || []).filter(x => x.text?.trim());
-      return p.length > 0 && p.every(x => x.done);
-    }
-    case "project": {
-      const items = (d.items || []).map(it => typeof it === "string" ? { text: it, done: false } : (it || {})).filter(x => x.text?.trim());
-      return items.length > 0 && items.every(x => x.done);
-    }
-    case "foodlog": {
-      const logs = d.logs || [];
-      const meals = (tile.config?.meals || []).length || 4;
-      return logs.length > 0 && logs.filter(l => l.done).length >= meals;
-    }
-    case "planner": {
-      const steps = d.steps || [];
-      return steps.length > 0 && steps.every(s => s.done);
-    }
-    default: return false;
-  }
-}
-
-function tileTitle(tile) {
-  return tile.config?.title || tile.config?.titleA || TILE_TYPES[tile.type]?.label || tile.type;
-}
-
-// #40 — quick-capture modal: type an idea, it appends to the Incoming Ideas
-// Notion page via the proxy Worker. Self-contained state; closes on success.
-function IdeaCaptureModal({ onClose }) {
-  const [text, setText] = useState("");
-  const [status, setStatus] = useState("idle"); // idle | sending | sent | error
-  const [err, setErr] = useState("");
-  const send = async () => {
-    const t = text.trim();
-    if (!t || status === "sending") return;
-    setStatus("sending");
-    try {
-      await sendIdea(t);
-      setStatus("sent");
-      setTimeout(onClose, 700);
-    } catch (e) {
-      setErr((e && e.message) || "failed");
-      setStatus("error");
-    }
-  };
-  return React.createElement("div", {
-    style:{position:"fixed",inset:0,background:"#000b",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:"12vh"},
-    onClick: onClose
-  },
-    React.createElement("div", {
-      onClick: e => e.stopPropagation(),
-      style:{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:"8px",padding:"18px",width:"min(440px,92vw)",boxShadow:"0 12px 40px #000a"}
-    },
-      React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"10px",letterSpacing:"1.5px",textTransform:"uppercase",color:"var(--accent)",marginBottom:"10px"} }, "💡 Capture an idea"),
-      React.createElement("div", { style:{fontSize:"10px",color:"var(--text-muted)",marginBottom:"10px",lineHeight:1.5} }, "Appends to your Daymaster — Incoming Ideas page in Notion."),
-      React.createElement("textarea", {
-        value: text, autoFocus: true, rows: 3,
-        placeholder: "A rough idea, half-formed thought…",
-        onChange: e => setText(e.target.value),
-        onKeyDown: e => { if ((e.metaKey||e.ctrlKey) && e.key === "Enter") send(); },
-        style:{width:"100%",background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"4px",color:"var(--text)",fontFamily:"var(--font-body)",fontSize:"12px",padding:"8px",resize:"vertical",lineHeight:1.5}
-      }),
-      React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:"12px",gap:"10px"} },
-        React.createElement("span", { style:{fontSize:"10px",color: status==="error"?"#c97a7a":"var(--text-muted)"} },
-          status==="sending" ? "Sending…" : status==="sent" ? "Sent ✓" : status==="error" ? `Failed: ${err}` : "⌘↵ to send"),
-        React.createElement("div", { style:{display:"flex",gap:"8px"} },
-          React.createElement("button", { onClick:onClose,
-            style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",fontFamily:"var(--font-body)",fontSize:"11px",padding:"6px 12px",borderRadius:"4px",cursor:"pointer"} }, "Cancel"),
-          React.createElement("button", { onClick:send, disabled: !text.trim()||status==="sending",
-            style:{background:"var(--accent)",border:"1px solid var(--accent)",color:"var(--bg)",fontFamily:"var(--font-body)",fontSize:"11px",padding:"6px 14px",borderRadius:"4px",cursor:"pointer",opacity:(!text.trim()||status==="sending")?0.5:1} }, "Send")
-        )
-      )
-    )
-  );
-}
-
-// ─── TILE LIBRARY PANEL ───────────────────────────────────────────────────────
-
-function TileLibrary({ onAdd, columns }) {
-  // #32 — default destination to the column with the fewest tiles (shortest by tile count).
-  // Ties broken by current order (i.e. leftmost shortest wins).
-  const shortestColId = React.useMemo(() => {
-    if (!columns?.length) return "";
-    let best = columns[0];
-    for (const c of columns) {
-      if ((c.tiles?.length||0) < (best.tiles?.length||0)) best = c;
-    }
-    return best.id;
-  }, [columns]);
-  const [col, setCol] = useState(shortestColId);
-  // Re-pick the shortest column whenever columns rebalance (e.g. after adding/removing/moving tiles)
-  React.useEffect(() => { setCol(shortestColId); }, [shortestColId]);
-  return React.createElement("div", { style:{background:"var(--bg-hover)",border:"1px solid var(--border)",borderRadius:"6px",padding:"14px",marginBottom:"14px"} },
-    React.createElement("div", { style:{display:"flex",alignItems:"center",gap:"10px",marginBottom:"10px",flexWrap:"wrap"} },
-      React.createElement("span", { style:{fontFamily:"var(--font-display)",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-muted)"} }, "Add to column:"),
-      columns.map(c => React.createElement("button", { key:c.id, onClick:()=>setCol(c.id),
-        style:{background:col===c.id?"var(--accent-dim)":"var(--bg-card)",border:`1px solid ${col===c.id?"var(--accent)":"var(--border)"}`,
-          color:col===c.id?"var(--accent)":"var(--text-dim)",fontSize:"10px",padding:"3px 10px",borderRadius:"3px",cursor:"pointer",fontFamily:"var(--font-body)"} },
-        c.id
-      ))
-    ),
-    React.createElement("div", { style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(90px,1fr))",gap:"6px"} },
-      Object.entries(TILE_TYPES).map(([type,{label,icon}]) =>
-        React.createElement("button", { key:type, onClick:()=>onAdd(col,type),
-          style:{background:"var(--bg-card)",border:"1px solid var(--border)",color:"var(--text-dim)",fontFamily:"var(--font-body)",
-            fontSize:"10px",padding:"8px 6px",borderRadius:"4px",cursor:"pointer",textAlign:"center",
-            display:"flex",flexDirection:"column",alignItems:"center",gap:"3px"} },
-          React.createElement("span", { style:{fontSize:"16px"} }, icon),
-          label
-        )
-      )
-    )
-  );
-}
-
-// ─── CONFIG MODAL ─────────────────────────────────────────────────────────────
-
-function ConfigModal({ tile, tiles, onSave, onClose }) {
-  const [cfg, setCfg] = useState({...tile.config});
-  // #41 — when configuring a gcal tile, pull the user's calendar list so calendarId can render as a dropdown.
-  const [calendarList, setCalendarList] = useState(null);
-  React.useEffect(() => {
-    if (tile.type !== "gcal") return;
-    let alive = true;
-    fetchCalendarList()
-      .then(list => { if (alive) setCalendarList(list); })
-      .catch(() => { if (alive) setCalendarList([]); });
-    return () => { alive = false; };
-  }, [tile.type]);
-
-  const inputStyle = {width:"100%",background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"3px",color:"var(--text)",fontFamily:"var(--font-body)",fontSize:"11px",padding:"6px 8px"};
-  const tinyBtn   = {background:"var(--bg-card)",border:"1px solid var(--border)",color:"var(--text-dim)",fontFamily:"var(--font-body)",fontSize:"10px",padding:"3px 8px",borderRadius:"3px",cursor:"pointer"};
-  const labelEl   = k => React.createElement("div", { style:{fontSize:"9px",color:"var(--text-muted)",letterSpacing:"1px",textTransform:"uppercase",marginBottom:"3px"} }, k);
-
-  // #46 — custom editor for notionlinks.links (array of {label, url}). The default
-  // array editor only handles string arrays; object arrays need their own UI.
-  const renderLinksEditor = (links) => {
-    const arr = Array.isArray(links) ? links : [];
-    const update = next => setCfg({...cfg, links: next});
-    return React.createElement("div", { style:{marginBottom:"10px"} },
-      labelEl("links"),
-      React.createElement("div", { style:{fontSize:"9px",color:"var(--text-faint)",marginBottom:"6px"} }, "Label + URL. Drop a link to remove it."),
-      React.createElement("div", { style:{display:"flex",flexDirection:"column",gap:"6px"} },
-        arr.map((l, i) =>
-          React.createElement("div", { key:i, style:{display:"flex",gap:"4px",alignItems:"center"} },
-            React.createElement("input", {
-              value: l?.label || "",
-              placeholder: "Label",
-              onChange: e => { const n=[...arr]; n[i]={...(n[i]||{}),label:e.target.value}; update(n); },
-              style: {...inputStyle, flex:"0 0 100px"}
-            }),
-            React.createElement("input", {
-              value: l?.url || "",
-              placeholder: "https://...",
-              onChange: e => { const n=[...arr]; n[i]={...(n[i]||{}),url:e.target.value}; update(n); },
-              style: {...inputStyle, flex:1}
-            }),
-            React.createElement("button", {
-              onClick: () => { const n=[...arr]; n.splice(i,1); update(n); },
-              title: "Remove",
-              style: {...tinyBtn, padding:"3px 7px"}
-            }, "✕")
-          )
-        )
-      ),
-      React.createElement("button", {
-        onClick: () => update([...arr, { label:"", url:"" }]),
-        style: {...tinyBtn, marginTop:"6px"}
-      }, "+ Add link")
-    );
-  };
-
-  // #49 — per-item rules editor for checklist tiles. Surfaces TILE_EVENTS as
-  // a label-friendly dropdown. Quantitative legacy rules (pushups-total-gte etc.)
-  // are rendered as readonly tags — users can clear them but not edit numerics
-  // here; threshold rules are configured by editing the layout JSON directly.
-  const renderRulesEditor = () => {
-    if (tile.type !== "checklist") return null;
-    const items = Array.isArray(cfg.items) ? cfg.items : [];
-    const rules = cfg.rules || {};
-    const candidateTiles = (tiles||[]).filter(t => t.id !== tile.id && TILE_EVENTS[t.type] && TILE_EVENTS[t.type].length > 0);
-
-    const setRuleAt = (i, rule) => {
-      const next = { ...rules };
-      if (rule == null) delete next[i]; else next[i] = rule;
-      setCfg({ ...cfg, rules: next });
-    };
-
-    return React.createElement("div", { style:{marginTop:"14px",paddingTop:"12px",borderTop:"1px solid var(--border)"} },
-      React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"10px",color:"var(--accent)",letterSpacing:"1.5px",marginBottom:"4px"} }, "AUTO-TICK RULES"),
-      React.createElement("div", { style:{fontSize:"9px",color:"var(--text-faint)",marginBottom:"10px",lineHeight:1.5} },
-        "Each item can auto-check when something happens on another tile."),
-      items.length === 0
-        ? React.createElement("div", { style:{fontSize:"10px",color:"var(--text-faint)",fontStyle:"italic"} }, "Add items above first.")
-        : React.createElement("div", { style:{display:"flex",flexDirection:"column",gap:"10px"} },
-            items.map((item, i) => {
-              const r = rules[i];
-              const isTileEvent = r?.type === "tile-event";
-              const isLegacy = r && !isTileEvent;
-              const srcTile = isTileEvent ? (candidateTiles.find(t => t.id === r.sourceTileId) || (tiles||[]).find(t => t.id === r.sourceTileId)) : null;
-              const srcEvents = srcTile ? (TILE_EVENTS[srcTile.type] || []) : [];
-
-              const itemLabel = React.createElement("div", { style:{fontSize:"10px",color:"var(--text-dim)",marginBottom:"4px"} },
-                React.createElement("span", { style:{color:"var(--text-muted)",marginRight:"5px"} }, `${i+1}.`),
-                item || React.createElement("span", { style:{fontStyle:"italic",color:"var(--text-faint)"} }, "(empty item)")
-              );
-
-              if (isLegacy) {
-                return React.createElement("div", { key:i },
-                  itemLabel,
-                  React.createElement("div", { style:{display:"flex",alignItems:"center",gap:"6px"} },
-                    React.createElement("span", { style:{fontSize:"9px",color:"var(--accent)",background:"var(--accent-dim)",border:"1px solid var(--accent)",padding:"2px 6px",borderRadius:"3px"} },
-                      `⚡ ${r.type}${r.threshold!=null?` ≥ ${r.threshold}`:""}`),
-                    React.createElement("button", { onClick:()=>setRuleAt(i,null), style:{...tinyBtn,padding:"2px 6px"} }, "Clear")
-                  )
-                );
-              }
-
-              return React.createElement("div", { key:i },
-                itemLabel,
-                React.createElement("div", { style:{display:"flex",gap:"4px"} },
-                  React.createElement("select", {
-                    value: isTileEvent ? r.sourceTileId : "",
-                    onChange: e => {
-                      const newSrcId = e.target.value;
-                      if (!newSrcId) { setRuleAt(i, null); return; }
-                      const newSrc = candidateTiles.find(t => t.id === newSrcId);
-                      const firstEvent = newSrc ? (TILE_EVENTS[newSrc.type]?.[0]?.key || "") : "";
-                      setRuleAt(i, { type:"tile-event", sourceTileId:newSrcId, event:firstEvent });
-                    },
-                    style: {...inputStyle, flex:"0 0 45%"}
-                  },
-                    React.createElement("option", { value:"" }, "— none —"),
-                    candidateTiles.map(t => React.createElement("option", { key:t.id, value:t.id },
-                      `${t.config?.title || t.id} (${TILE_TYPES[t.type]?.label || t.type})`
-                    ))
-                  ),
-                  isTileEvent && React.createElement("select", {
-                    value: r.event || "",
-                    onChange: e => setRuleAt(i, { ...r, event: e.target.value }),
-                    style: {...inputStyle, flex:1}
-                  },
-                    srcEvents.map(ev => React.createElement("option", { key:ev.key, value:ev.key }, ev.label))
-                  )
-                )
-              );
-            })
-          )
-    );
-  };
-
-  return React.createElement("div", {
-    style:{position:"fixed",inset:0,background:"#000b",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}
-  },
-    React.createElement("div", { style:{background:"var(--bg-hover)",border:"1px solid var(--border)",borderRadius:"8px",padding:"22px",width:"380px",maxHeight:"82vh",overflow:"auto"} },
-      React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"12px",color:"var(--accent)",marginBottom:"16px",letterSpacing:"1px"} },
-        `Configure: ${TILE_TYPES[tile.type]?.label||tile.type}`
-      ),
-      Object.entries(cfg).map(([k,v]) => {
-        if (k.startsWith("_")) return null;
-        const label = labelEl(k);
-        // #49 — `rules` is rendered by the dedicated rules editor section below, not as a raw field.
-        if (k === "rules") return null;
-        // #46 — special-case the notionlinks `links` field as an object-array editor.
-        if (k === "links" && tile.type === "notionlinks") return React.createElement(React.Fragment, { key:k }, renderLinksEditor(v));
-        // #41 — special-case the gcal calendarId field as a dropdown of the user's calendars
-        if (k === "calendarId" && tile.type === "gcal") {
-          if (calendarList === null) return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
-            label,
-            React.createElement("div", { style:{fontSize:"10px",color:"var(--text-faint)",padding:"6px 0"} }, "Loading calendars…"));
-          if (calendarList.length === 0) return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
-            label,
-            React.createElement("input", { value:v, onChange:e=>setCfg({...cfg,[k]:e.target.value}), style:inputStyle }),
-            React.createElement("div", { style:{fontSize:"9px",color:"var(--text-faint)",marginTop:"3px"} }, "Couldn't load calendar list — enter ID manually."));
-          return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
-            label,
-            React.createElement("select", {
-              value: v,
-              onChange: e => setCfg({...cfg, [k]: e.target.value}),
-              style: inputStyle
-            },
-              calendarList.map(c => React.createElement("option", { key:c.id, value:c.id },
-                `${c.name}${c.primary ? " (primary)" : ""}`
-              ))
-            )
-          );
-        }
-        // #45 — special-case the checkin planksSlot field as a time-of-day dropdown.
-        if (k === "planksSlot" && tile.type === "checkin") {
-          return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
-            label,
-            React.createElement("select", {
-              value: v,
-              onChange: e => setCfg({...cfg, [k]: e.target.value}),
-              style: inputStyle
-            },
-              [
-                ["am",        "AM (before 11:30)"],
-                ["noon",      "Noon (11:30–14:00)"],
-                ["afternoon", "PM (14:00–18:00)"],
-                ["evening",   "Evening (18:00+)"],
-                ["none",      "Disable auto-tick"],
-              ].map(([val,name]) => React.createElement("option", { key:val, value:val }, name))
-            )
-          );
-        }
-        // #3 — special-case the guidedam mode field as a dropdown.
-        if (k === "mode" && tile.type === "guidedam") {
-          return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
-            label,
-            React.createElement("select", {
-              value: v,
-              onChange: e => setCfg({...cfg, [k]: e.target.value}),
-              style: inputStyle
-            },
-              React.createElement("option", { value: "all" }, "All visible"),
-              React.createElement("option", { value: "guided" }, "Guided (step-by-step)")
-            )
-          );
-        }
-        if (typeof v === "string") return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
-          label, React.createElement("input", { value:v, onChange:e=>setCfg({...cfg,[k]:e.target.value}), style:inputStyle }));
-        if (typeof v === "number") return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
-          label, React.createElement("input", { type:"number", value:v, onChange:e=>setCfg({...cfg,[k]:+e.target.value}), style:inputStyle }));
-        if (Array.isArray(v)) return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
-          label,
-          React.createElement("div", { style:{fontSize:"9px",color:"var(--text-faint)",marginBottom:"3px"} }, "one item per line"),
-          React.createElement("textarea", { value:v.join("\n"), rows:Math.max(3,v.length+1),
-            onChange: e => { setCfg({...cfg,[k]:e.target.value.split("\n")}); e.target.style.height="auto"; e.target.style.height=e.target.scrollHeight+"px"; },
-            onFocus: e => { e.target.style.height="auto"; e.target.style.height=e.target.scrollHeight+"px"; },
-            style:{...inputStyle,resize:"none",overflow:"hidden"} }));
-        return null;
-      }),
-      // #49 — per-item rules editor, only relevant to checklist tiles.
-      renderRulesEditor(),
-      React.createElement("div", { style:{display:"flex",gap:"8px",marginTop:"16px"} },
-        React.createElement("button", { onClick:()=>onSave(cfg),
-          style:{flex:1,background:"var(--accent-dim)",border:"1px solid var(--accent)",color:"var(--accent)",fontFamily:"var(--font-body)",fontSize:"11px",padding:"8px",borderRadius:"4px",cursor:"pointer"} },
-          "Save"),
-        React.createElement("button", { onClick:onClose,
-          style:{flex:1,background:"var(--bg-card)",border:"1px solid var(--border)",color:"var(--text-dim)",fontFamily:"var(--font-body)",fontSize:"11px",padding:"8px",borderRadius:"4px",cursor:"pointer"} },
-          "Cancel")
-      )
-    )
-  );
-}
-
-// ─── HISTORY VIEW ─────────────────────────────────────────────────────────────
-
-function HistoryView({ store }) {
-  // #48 — newest-first by default; toggle to reverse. The "latest" day is always
-  // identified as the lexicographically-largest key (newest), independent of sort
-  // direction — the badge anchors to the most recent day, not the topmost row.
-  const [sortDir, setSortDir] = useState("desc");
-  const [sel, setSel] = useState(null);
-  const sortedDesc = Object.entries(store.days).sort((a,b)=>b[0].localeCompare(a[0]));
-  const days = sortDir === "desc" ? sortedDesc : [...sortedDesc].reverse();
-  const latestKey = sortedDesc[0]?.[0];
-
-  // Union tiles across all layouts so history renders even if the user switched
-  // to a preset that excludes some tiles previously logged.
-  const allTiles = React.useMemo(() => {
-    const map = {};
-    for (const layoutKey of Object.keys(store.layouts || {})) {
-      const layout = store.layouts[layoutKey];
-      for (const col of layout?.columns || []) {
-        for (const t of col.tiles || []) if (!map[t.id]) map[t.id] = t;
-      }
-    }
-    return Object.values(map);
-  }, [store.layouts]);
-
-  if (!sortedDesc.length) return React.createElement("div", {
-    style:{textAlign:"center",padding:"80px",color:"var(--text-faint)",fontFamily:"var(--font-body)",fontSize:"12px"}
-  }, "No history yet — your completed days will appear here.");
-
-  const selData = sel ? store.days[sel] : null;
-
-  return React.createElement("div", { style:{maxWidth:"960px",margin:"0 auto",padding:"24px",display:"grid",gridTemplateColumns:"200px 1fr",gap:"16px"} },
-    React.createElement("div", null,
-      React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"10px"} },
-        React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-faint)"} }, "Past Days"),
-        // #48 — sort toggle. Clicking flips direction; chevron indicates current.
-        React.createElement("button", {
-          onClick: () => setSortDir(d => d === "desc" ? "asc" : "desc"),
-          title: sortDir === "desc" ? "Showing newest first — click for oldest first" : "Showing oldest first — click for newest first",
-          style:{background:"transparent",border:"none",color:"var(--text-faint)",fontFamily:"var(--font-body)",fontSize:"9px",cursor:"pointer",letterSpacing:"0.5px",padding:"0 2px"}
-        }, sortDir === "desc" ? "↓ newest" : "↑ oldest")
-      ),
-      days.map(([key]) => {
-        const isLatest  = key === latestKey;
-        const isSel     = sel === key;
-        // #48 — most-recent day gets a brighter border + LATEST tag, regardless of sort.
-        const borderCol = isSel ? "var(--accent)" : (isLatest ? "var(--accent)" : "var(--border-dim)");
-        const bgCol     = isSel ? "var(--accent-dim)" : (isLatest ? "var(--accent-dim)" : "transparent");
-        const txtCol    = isSel ? "var(--accent)" : (isLatest ? "var(--accent)" : "var(--text-dim)");
-        return React.createElement("button", { key, onClick:()=>setSel(key),
-          style:{display:"block",width:"100%",textAlign:"left",background:bgCol,
-            border:`1px solid ${borderCol}`,borderRadius:"4px",padding:"8px 10px",
-            marginBottom:"4px",color:txtCol,fontFamily:"var(--font-body)",
-            fontSize:"10px",cursor:"pointer",position:"relative"} },
-          fmtDate(key),
-          isLatest && React.createElement("span", {
-            style:{position:"absolute",top:"3px",right:"4px",fontSize:"7px",letterSpacing:"1px",
-              color:"var(--accent)",background:"var(--bg)",border:"1px solid var(--accent)",
-              padding:"1px 4px",borderRadius:"2px",fontFamily:"var(--font-display)"}
-          }, "LATEST")
-        );
-      })
-    ),
-    React.createElement("div", null,
-      selData ? React.createElement("div", null,
-        React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"16px",color:"var(--accent)",marginBottom:"16px"} }, fmtDate(sel)),
-        allTiles.map(tile => {
-          const td = selData[tile.id];
-          if (!td) return null;
-          return React.createElement("div", { key:tile.id, style:{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:"5px",padding:"13px",marginBottom:"10px"} },
-            React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-muted)",marginBottom:"8px"} }, tile.config?.title||tile.id),
-            // Render a readable summary based on tile type
-            tile.type === "priorities" && React.createElement("div", null,
-              (td.priorities||[]).filter(p=>p.text).map((p,i) =>
-                React.createElement("div", { key:i, style:{color:p.done?"#4a7a4a":"#aaa",fontSize:"12px",marginBottom:"3px",textDecoration:p.done?"line-through":"none"} },
-                  `${p.done?"✓":"○"} ${p.text}`)
-              )
-            ),
-            tile.type === "textprompt" && td.text && React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"12px",lineHeight:1.6} }, td.text),
-            tile.type === "twoprompt" && React.createElement("div", null,
-              td.textA && React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"12px",marginBottom:"6px"} }, React.createElement("span", { style:{color:"var(--text-muted)"} }, `${tile.config.titleA}: `), td.textA),
-              td.textB && React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"12px"} }, React.createElement("span", { style:{color:"var(--text-muted)"} }, `${tile.config.titleB}: `), td.textB)
-            ),
-            // #3 — guidedam history mirrors twoprompt, plus the third "Priority" prompt.
-            // Past-day data written under the old twoprompt type still renders correctly here
-            // since the migration only changes the tile type, not the per-day field names.
-            tile.type === "guidedam" && React.createElement("div", null,
-              td.textA && React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"12px",marginBottom:"6px"} },
-                React.createElement("span", { style:{color:"var(--text-muted)"} }, `${tile.config.titleA||"Gratitude"}: `), td.textA),
-              td.textB && React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"12px",marginBottom:"6px"} },
-                React.createElement("span", { style:{color:"var(--text-muted)"} }, `${tile.config.titleB||"Intention"}: `), td.textB),
-              td.textC && React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"12px"} },
-                React.createElement("span", { style:{color:"var(--text-muted)"} }, `${tile.config.titleC||"Priority"}: `), td.textC)
-            ),
-            (tile.type === "freelist" || tile.type === "project") && React.createElement("div", null,
-              // #52 — project items are now {text,done}; freelist items stay strings. Handle both.
-              (td.items||[]).map(it => typeof it === "string" ? { text: it, done: false } : (it || { text:"", done:false }))
-                .filter(it => it.text?.trim())
-                .map((it,i) => React.createElement("div", { key:i, style:{color:"var(--text-dim)",fontSize:"12px",marginBottom:"2px",textDecoration: it.done?"line-through":"none"} }, `${it.done?"✓":"○"} ${it.text}`))
-            ),
-            tile.type === "checkin" && React.createElement("div", null,
-              React.createElement("div", { style:{color:"var(--text-dim)",fontSize:"12px",marginBottom:"4px"} },
-                [td.planks&&"Planks ✓", td.food&&"Food ✓", td.priorities&&"Priorities ✓"].filter(Boolean).join("  ·  ")
-              ),
-              // #27 — show carried/completed next-priorities items so history reflects
-              // the new checkbox state introduced by #43.
-              (td.items||[]).filter(it => (typeof it === "string" ? it : it?.text)).length > 0 && React.createElement("div", {
-                style:{marginTop:"6px",paddingTop:"6px",borderTop:"1px solid var(--border-dim)"}
-              },
-                React.createElement("div", { style:{fontSize:"9px",color:"var(--text-muted)",marginBottom:"3px",letterSpacing:"1px",textTransform:"uppercase"} }, "Next priorities"),
-                (td.items||[]).map((it, i) => {
-                  const obj = typeof it === "string" ? { text: it, done: false } : it;
-                  if (!obj?.text) return null;
-                  return React.createElement("div", { key:i, style:{color:obj.done?"#4a7a4a":"var(--text-dim)",fontSize:"11px",marginBottom:"2px",textDecoration:obj.done?"line-through":"none"} },
-                    `${obj.done?"✓":"○"} ${obj.text}`);
-                })
-              ),
-              // #37 — emoji + paired text note side-by-side
-              (td.feeling || td.feelingNote) && React.createElement("div", {
-                style:{display:"flex",alignItems:"flex-start",gap:"8px",color:"var(--text-dim)",fontSize:"11px",fontStyle:"italic",marginTop:"6px"}
-              },
-                td.feeling && React.createElement("span", { style:{fontSize:"16px",fontStyle:"normal",flexShrink:0,lineHeight:1.3} }, td.feeling),
-                td.feelingNote && React.createElement("span", { style:{lineHeight:1.5} }, `"${td.feelingNote}"`)
-              )
-            ),
-            // #11 — music log history: checkbox state + optional note.
-            tile.type === "musiclog" && React.createElement("div", { style:{fontSize:"12px"} },
-              React.createElement("div", { style:{color: td.done?"#4a7a4a":"var(--text-muted)",marginBottom:td.note?"4px":0} },
-                td.done ? "✓ Made music" : "○ No music logged"
-              ),
-              td.note && React.createElement("div", { style:{fontStyle:"italic",color:"var(--text-dim)",lineHeight:1.5} }, `"${td.note}"`)
-            ),
-            // #46 — notionlinks history just lists the links that were configured on that day's layout.
-            // Since links live in tile config (not per-day data), we render them as a faded reminder.
-            tile.type === "notionlinks" && React.createElement("div", { style:{fontSize:"11px",color:"var(--text-faint)",fontStyle:"italic"} },
-              `${(tile.config?.links||[]).filter(l=>l?.url).length} link${(tile.config?.links||[]).filter(l=>l?.url).length===1?"":"s"} configured`
-            ),
-            ["checklist"].includes(tile.type) && React.createElement("div", null,
-              tile.config.items?.map((item,i) =>
-                React.createElement("div", { key:i, style:{color:(td.checks||[])[i]?"#4a7a4a":"#555",fontSize:"12px",marginBottom:"2px"} },
-                  `${(td.checks||[])[i]?"✓":"○"} ${item}`)
-              )
-            )
-          );
-        })
-      ) : React.createElement("div", { style:{color:"var(--text-faint)",fontFamily:"var(--font-body)",fontSize:"12px",padding:"60px",textAlign:"center"} }, "← Select a day")
-    )
-  );
-}
-
-// ─── SYNC STATUS INDICATOR ────────────────────────────────────────────────────
-
-function SyncDot({ status }) {
-  const colors = { idle:"var(--text-faint)", saving:"#c8a96e", saved:"#4a7a4a", error:"#a04040", offline:"var(--text-muted)" };
-  const labels = { idle:"", saving:"saving...", saved:"saved to Drive", error:"save failed", offline:"offline" };
-  return React.createElement("div", { style:{display:"flex",alignItems:"center",gap:"5px",fontSize:"9px",color:"var(--text-muted)",letterSpacing:"0.5px"} },
-    React.createElement("div", { style:{width:"6px",height:"6px",borderRadius:"50%",background:colors[status]||"var(--text-faint)",transition:"background 0.3s"} }),
-    labels[status]
-  );
-}
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 
 function App() {
   const [store, setStore]         = useState(null);
-  const [authState, setAuthState] = useState("idle"); // idle | authing | authed | error
-  const [authEpoch, setAuthEpoch] = useState(0); // bumps after each successful auth; calendar tile etc. watch this to re-fetch
+  // Google OAuth lifecycle lives in useGoogleAuth; the post-auth load (syncDown,
+  // hoisted below) is injected so the hook stays free of store/sync concerns.
+  const { authState, authEpoch, isAuthed, setAuthState, initGoogleAuth, signOut } =
+    useGoogleAuth({ onAuthed: () => syncDown() });
   const [syncStatus, setSyncStatus] = useState("idle"); // idle | saving | saved | error | offline
   const [view, setView]           = useState("today");
   const [editMode, setEditMode]   = useState(false);
@@ -581,7 +54,17 @@ function App() {
   const [remind, setRemind]       = useState(() => localStorage.getItem(REMIND_KEY) === "1"); // #14
   const firedRef = useRef(new Set());                    // #14 — reminders already fired today
   const saveTimer = useRef(null);
-  const isAuthed = authState === "authed";
+  // #61 — first-run onboarding (Phase 2). `onboarding` overlays the guided interview;
+  // `firstRunRef` remembers whether localStorage was pristine at mount (captured before
+  // the save effect writes the store), so syncDown can tell a brand-new profile from a
+  // returning Drive user whose local cache is empty.
+  const [onboarding, setOnboarding] = useState(false);
+  const firstRunRef = useRef(false);
+  // #61 — edit-mode "add tile" feedback: the just-added tile lands at the bottom of
+  // a column (far down on stacked mobile) with no visible cue. Track it to scroll +
+  // highlight + toast. And a one-time post-onboarding banner orienting to layout edit.
+  const [justAdded, setJustAdded]         = useState(null); // { id, label, colId }
+  const [showLayoutTip, setShowLayoutTip] = useState(false);
 
   // #35 — re-render every minute so check-in blocks become stale on schedule.
   useEffect(() => {
@@ -601,6 +84,9 @@ function App() {
     const nowMin = d.getHours() * 60 + d.getMinutes();
     for (const col of lay.columns) for (const t of (col.tiles || [])) {
       if (t.type !== "checkin") continue;
+      // #61 — per-check-in opt-in: onboarding-seeded tiles carry notify:true|false.
+      // Legacy tiles have no flag → keep the pre-#61 behavior (fire when remind is on).
+      if (t.config?.notify === false) continue;
       const sched = checkinScheduleMin(t.config);
       if (sched == null) continue;
       const eff = sched + ((data[t.id]?._delayMin) || 0);
@@ -632,68 +118,6 @@ function App() {
     localStorage.setItem(FONT_KEY, font);
   }, [font]);
 
-  // ── Auth ──────────────────────────────────────────────────────────────────
-
-  // `force` = true means we want the consent dialog to actually appear
-  // (e.g. user clicked "Re-authorize" because a needed scope is missing).
-  // Without `prompt: "consent"`, Google will silently return whatever scopes
-  // it already has on file, even if that's an incomplete subset of what we asked for.
-  function initGoogleAuth(force = false) {
-    if (!CLIENT_ID || CLIENT_ID === "YOUR_GOOGLE_CLIENT_ID_HERE") {
-      setAuthState("no-config");
-      return;
-    }
-    setAuthState("authing");
-    try {
-      const client = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: SCOPES,
-        callback: async (resp) => {
-          if (resp.error) {
-            console.error("Google auth error:", resp.error, resp.error_description);
-            setAuthState("error");
-            return;
-          }
-          setToken(resp.access_token);
-          // Surface any missing scopes so the calendar tile can show a real error
-          // instead of silently looping on 403.
-          const granted = (resp.scope || "").split(" ").filter(Boolean);
-          const requested = SCOPES.split(" ").filter(Boolean);
-          const missing = requested.filter(s => !granted.includes(s));
-          if (missing.length) {
-            console.warn("OAuth token issued without requested scopes:", missing,
-              "— check Google Cloud Console: enable the API and add the scope to your OAuth consent screen.");
-          }
-          window.__daymasterGrantedScopes = granted;
-          setAuthState("authed");
-          setAuthEpoch(e => e + 1);
-          await syncDown();
-        }
-      });
-      client.requestAccessToken({ prompt: force ? "consent" : "" });
-    } catch(e) {
-      console.error("Auth error", e);
-      setAuthState("error");
-    }
-  }
-
-  // Sign out of Google/Drive sync. Revoking the access token clears Google's
-  // record of the granted scopes, so the next "Connect Drive" shows a fresh
-  // consent screen — which is what you want after the scope set changes (#62).
-  // Local data is left untouched; only the live session token is dropped.
-  function signOut() {
-    const tok = getToken();
-    try {
-      if (tok && window.google?.accounts?.oauth2?.revoke) {
-        google.accounts.oauth2.revoke(tok, () => {});
-      }
-    } catch(e) { console.warn("Token revoke failed", e); }
-    setToken(null);
-    window.__daymasterGrantedScopes = undefined;
-    setAuthState("idle");
-    setAuthEpoch(e => e + 1);
-  }
-
   // ── Load ──────────────────────────────────────────────────────────────────
 
   async function syncDown() {
@@ -710,6 +134,11 @@ function App() {
     } catch(e) {
       console.warn("Drive load failed, using local", e);
     }
+    // #61 — true first run: no Drive store AND the profile was pristine at mount.
+    // Route to the onboarding interview instead of silently seeding the default
+    // layout. (firstRunRef, not a fresh localStorage read — the mount save effect
+    // has already written LOCAL_KEY by now.)
+    if (firstRunRef.current && !localStore) setOnboarding(true);
     // Fall back to localStorage
     applyStore(localStore || emptyStore());
   }
@@ -775,12 +204,21 @@ function App() {
   // On mount — load from localStorage immediately, then auth + sync Drive
   useEffect(() => {
     const local = localStorage.getItem(LOCAL_KEY);
+    // #61 — remember the pristine state BEFORE applyStore triggers the save effect
+    // (which writes LOCAL_KEY). Used by syncDown to detect a true first run.
+    firstRunRef.current = !local;
+    // #61 — ?onboarding=1 forces/replays the guided interview anytime, for internal
+    // testing, regardless of stored state. We still apply the underlying store so a
+    // skip/finish reveals the real layout and the splash dismisses.
+    if (new URLSearchParams(window.location.search).get("onboarding") === "1") setOnboarding(true);
     applyStore(local ? JSON.parse(local) : emptyStore());
     // Auto-init auth if Google API loaded
     const tryAuth = () => {
       if (window.google?.accounts?.oauth2 && CLIENT_ID && CLIENT_ID !== "YOUR_GOOGLE_CLIENT_ID_HERE") {
         initGoogleAuth();
       } else {
+        // No Google config → can't check Drive; a pristine profile still onboards.
+        if (firstRunRef.current) setOnboarding(true);
         setAuthState("no-config");
         if (window.__daymasterReady) window.__daymasterReady();
       }
@@ -833,8 +271,12 @@ function App() {
   const removeTile = useCallback((colId, tileId) =>
     mutateLayout(l => ({ ...l, columns: l.columns.map(c => c.id===colId ? {...c, tiles:c.tiles.filter(t=>t.id!==tileId)} : c) })), []);
 
-  const addTile = useCallback((colId, type) =>
-    mutateLayout(l => ({ ...l, columns: l.columns.map(c => c.id===colId ? {...c, tiles:[...c.tiles, {id:uid(),type,config:defaultConfig(type)}]} : c) })), []);
+  const addTile = useCallback((colId, type) => {
+    const id = uid();
+    mutateLayout(l => ({ ...l, columns: l.columns.map(c => c.id===colId ? {...c, tiles:[...c.tiles, {id,type,config:defaultConfig(type)}]} : c) }));
+    // #61 — signal the new tile so the render can scroll/highlight it + toast.
+    setJustAdded({ id, label: TILE_TYPES[type]?.label || type, colId });
+  }, []);
 
   const saveTileConfig = useCallback((colId, tileId, cfg) =>
     mutateLayout(l => ({ ...l, columns: l.columns.map(c => c.id===colId ? {...c, tiles:c.tiles.map(t=>t.id===tileId?{...t,config:cfg}:t)} : c) })), []);
@@ -928,6 +370,20 @@ function App() {
     });
   }, []);
 
+  // #61 — once a tile is added, scroll it into view + flash a highlight, then clear
+  // (also drops the confirmation toast). The brief delay lets React commit the new tile.
+  useEffect(() => {
+    if (!justAdded) return;
+    const scroll = setTimeout(() => {
+      try {
+        const el = document.querySelector(`[data-tile-id="${justAdded.id}"]`);
+        if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      } catch {}
+    }, 60);
+    const clear = setTimeout(() => setJustAdded(null), 2400);
+    return () => { clearTimeout(scroll); clearTimeout(clear); };
+  }, [justAdded]);
+
   const exportBackup = () => {
     const blob = new Blob([JSON.stringify(store,null,2)],{type:"application/json"});
     const url = URL.createObjectURL(blob);
@@ -956,6 +412,19 @@ function App() {
     for (const col of layout?.columns || []) for (const t of col.tiles || []) map[t.id] = t;
     return map;
   }, [layout]);
+
+  // #61 — Beta Onboarding (Phase 2). Overlays the guided interview for a true first
+  // run, when forced via ?onboarding=1, or from the in-app "Re-run setup" entry.
+  // Commit-on-finish: only Finish seeds + persists (applyStore → save effect). Skip
+  // and Back never write — Finish REPLACES the current layout (locked decision).
+  if (onboarding) return React.createElement(Onboarding, {
+    onComplete: (answers) => { applyStore(buildOnboardingLayout(answers)); setOnboarding(false); setShowLayoutTip(true); },
+    onSkip: () => setOnboarding(false),
+    // #61 — the optional Connect step wires to the app's existing Google auth.
+    onConnect: () => initGoogleAuth(),
+    connected: isAuthed,
+    authState,
+  });
 
   if (!store) return React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"var(--bg)",color:"var(--text-muted)",fontFamily:"monospace"} }, "Loading...");
 
@@ -1214,6 +683,9 @@ function App() {
         authState==="authing" && React.createElement("span", { style:{color:"var(--text-muted)",fontSize:"10px"} }, "Connecting..."),
         // Sign out of Drive sync; revokes the token so the next connect re-consents (#62).
         isAuthed && headerBtn("⎋ Sign out", signOut, false, { title:"Disconnect Google / Drive sync" }),
+        // #61 — re-run the onboarding interview (Phase 2). Skip/Back leave the
+        // current layout untouched; Finish replaces it with a fresh seeded one.
+        headerBtn("✨ Setup", () => setOnboarding(true), false, { title:"Re-run the guided setup" }),
         headerBtn("⬇ Backup", exportBackup),
         React.createElement("label", { style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",padding:"5px 12px",borderRadius:"4px",cursor:"pointer",fontFamily:"var(--font-body)",fontSize:"10px"} },
           "⬆ Restore",
@@ -1226,6 +698,30 @@ function App() {
     view==="history" && React.createElement(HistoryView, { store }),
 
     view==="today" && React.createElement("div", { className:"dm-main", style:{padding:"16px"} },
+      // #61 — one-time post-onboarding orientation: point new users at layout editing.
+      showLayoutTip && !editMode && React.createElement("div", {
+        style:{display:"flex",alignItems:"center",gap:"12px",flexWrap:"wrap",background:"var(--accent-dim)",
+          border:"1px solid var(--accent)",borderRadius:"8px",padding:"12px 16px",marginBottom:"14px"}
+      },
+        React.createElement("span", { style:{fontSize:"18px"} }, "✨"),
+        React.createElement("span", { style:{flex:1,minWidth:"200px",fontSize:"12px",color:"var(--text)",lineHeight:1.5} },
+          "Your dashboard is ready. Tap ",
+          React.createElement("b", { style:{color:"var(--accent)"} }, "✎ Layout"),
+          " (top-right) anytime to add, remove, drag, or rearrange tiles."),
+        headerBtn("Show me", () => { setShowLayoutTip(false); setEditMode(true); }, true),
+        React.createElement("button", { onClick:()=>setShowLayoutTip(false), title:"Dismiss",
+          style:{background:"transparent",border:"none",color:"var(--text-dim)",cursor:"pointer",fontSize:"16px",lineHeight:1,padding:"2px 4px"} }, "✕")
+      ),
+      // #61 — edit-mode helper: orient to how adding/arranging works (the add lands at
+      // the bottom of the chosen column; we scroll to it). Pairs with the add toast.
+      editMode && React.createElement("div", {
+        style:{background:"var(--bg-hover)",border:"1px dashed var(--accent)",borderRadius:"8px",
+          padding:"10px 14px",marginBottom:"12px",fontSize:"11px",color:"var(--text-dim)",lineHeight:1.6}
+      },
+        React.createElement("b", { style:{color:"var(--accent)"} }, "Editing layout. "),
+        "Click any tile below to add it — it lands at the bottom of the chosen column, and we'll scroll you to it. Drag to reorder, ←/→ to move across columns, ✕ to remove. Click ",
+        React.createElement("b", { style:{color:"var(--accent)"} }, "✓ Done"),
+        " up top when you're happy."),
       editMode && React.createElement(TileLibrary, { onAdd:addTile, columns:layout.columns }),
 
       React.createElement("div", { className:"dm-grid", style:{display:"grid",gridTemplateColumns:layout.columns.map(c=>`${c.width}fr`).join(" "),gap:"14px"} },
@@ -1286,7 +782,9 @@ function App() {
               const collapsed = !editMode && focusMode
                 && tileComplete(tile, todayData[tile.id]||{}, todayData)
                 && !focusExpanded[tile.id];
+              const justHighlighted = justAdded?.id === tile.id;
               return React.createElement("div", { key:tile.id,
+                "data-tile-id": tile.id,
                 draggable:editMode,
                 onDragStart: () => setDragState({colId:col.id, tileIdx, tileId:tile.id}),
                 onDragOver: e => e.preventDefault(),
@@ -1300,7 +798,13 @@ function App() {
                   }
                   setDragState(null);
                 },
-                style:{cursor:editMode?"grab":"default", opacity:isDragging?0.4:1, transition:"opacity 0.15s", position:"relative"} },
+                style:{cursor:editMode?"grab":"default", opacity:isDragging?0.4:1,
+                  transition:"opacity 0.15s, box-shadow 0.3s", position:"relative",
+                  // #61 — flash the freshly-added tile so the add is visible.
+                  borderRadius: justHighlighted ? "8px" : undefined,
+                  outline: justHighlighted ? "2px solid var(--accent)" : "none",
+                  outlineOffset: justHighlighted ? "2px" : 0,
+                  boxShadow: justHighlighted ? "0 0 0 5px var(--accent-dim)" : "none"} },
                 // Cross-column arrow buttons in edit mode
                 editMode && React.createElement("div", {
                   style:{position:"absolute",top:"7px",left:"7px",display:"flex",gap:"3px",zIndex:20}
@@ -1379,6 +883,23 @@ function App() {
               React.createElement(AddProjectButton, { colId: col.id, onAdd: addTile })
           )
         })
+      ),
+
+      // #61 — sticky wrap-up: a prominent way to finish editing and get back to the
+      // day. The header "✓ Done" can scroll out of reach after adding/arranging tiles,
+      // so this bar stays pinned to the bottom while editing. (Changes are already
+      // saved continuously, so "done" just leaves edit mode.)
+      editMode && React.createElement("div", {
+        style:{position:"sticky",bottom:0,marginTop:"18px",padding:"14px 12px 16px",zIndex:40,
+          display:"flex",justifyContent:"center",
+          background:"linear-gradient(to top, var(--bg) 55%, transparent)"}
+      },
+        React.createElement("button", {
+          onClick: () => setEditMode(false),
+          style:{background:"var(--accent)",color:"var(--bg)",border:"1px solid var(--accent)",
+            padding:"12px 26px",borderRadius:"10px",cursor:"pointer",fontFamily:"var(--font-display)",
+            fontSize:"12px",letterSpacing:"0.5px",boxShadow:"0 6px 20px rgba(0,0,0,0.45)"}
+        }, "✓ Done — back to mastering your day")
       )
     ),
 
@@ -1397,7 +918,18 @@ function App() {
       tiles: layout.columns.flatMap(c => c.tiles),
       onSave: cfg => { saveTileConfig(configTile.colId, configTile.tile.id, cfg); setConfigTile(null); },
       onClose: () => setConfigTile(null)
-    })
+    }),
+
+    // #61 — "added" confirmation toast (auto-dismisses with justAdded). Reassures
+    // that the click worked even when the new tile lands off-screen at a column's end.
+    justAdded && React.createElement("div", {
+      style:{position:"fixed",bottom:"24px",left:"50%",transform:"translateX(-50%)",zIndex:200,
+        background:"var(--bg-hover)",border:"1px solid var(--accent)",color:"var(--text)",
+        padding:"10px 18px",borderRadius:"8px",fontSize:"11px",letterSpacing:"0.5px",
+        boxShadow:"0 4px 18px rgba(0,0,0,0.45)",display:"flex",alignItems:"center",gap:"8px"}
+    },
+      React.createElement("span", { style:{color:"var(--accent)",fontSize:"13px"} }, "✓"),
+      `Added ${justAdded.label} to ${justAdded.colId.replace("col-","")} — scrolled into view`)
   );
 }
 

@@ -17,6 +17,12 @@ export default defineConfig({
     outDir: "docs",
     emptyOutDir: true,
   },
+  // Allow reaching the dev server over Tailscale by MagicDNS name (e.g. "winters"
+  // or any "*.ts.net"), not just localhost. Dev-only; the production build is static.
+  server: {
+    host: true,
+    allowedHosts: ["winters", ".ts.net"],
+  },
   test: {
     environment: "node",
     include: ["test/**/*.test.{js,jsx}"],

@@ -1,8 +1,11 @@
 // App configuration, read from window.DAYMASTER_CONFIG (set in the HTML shell).
+// Guarded so this module is import-safe outside the browser (e.g. node-env tests
+// that transitively import it via the tile registry).
 
-export const CFG = window.DAYMASTER_CONFIG || {};
+const _win = typeof window !== "undefined" ? window : {};
+export const CFG = _win.DAYMASTER_CONFIG || {};
 export const CLIENT_ID = CFG.GOOGLE_CLIENT_ID || "";
-export const APP_URL = CFG.APP_URL || window.location.origin;
+export const APP_URL = CFG.APP_URL || _win.location?.origin || "";
 export const DRIVE_FOLDER = CFG.DRIVE_FOLDER || "Daymaster";
 // Base URL of the Daymaster API proxy Worker (Notion features). Empty until the
 // Worker is deployed; the Notion client no-ops while unset.
