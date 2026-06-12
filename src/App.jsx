@@ -17,6 +17,7 @@ import { Onboarding } from "./ui/Onboarding.jsx";
 import { SyncDot } from "./ui/SyncDot.jsx";
 import { IdeaCaptureModal } from "./ui/IdeaCaptureModal.jsx";
 import { TileLibrary } from "./ui/TileLibrary.jsx";
+import { LayoutPreview } from "./ui/LayoutPreview.jsx";
 import { ConfigModal } from "./ui/ConfigModal.jsx";
 import { HistoryView } from "./ui/HistoryView.jsx";
 import { LinksModal } from "./ui/LinksModal.jsx";
@@ -836,6 +837,8 @@ function App() {
         "Click any tile below to add it — it lands at the bottom of the chosen column, and we'll scroll you to it. Drag to reorder, ←/→ to move across columns, ✕ to remove. Click ",
         React.createElement("b", { style:{color:"var(--accent)"} }, "✓ Done"),
         " up top when you're happy."),
+      // #73 — schematic preview of the current layout + a phone-stack ("Mobile") view.
+      editMode && React.createElement(LayoutPreview, { columns:layout.columns }),
       editMode && React.createElement(TileLibrary, { onAdd:addTile, columns:layout.columns }),
 
       React.createElement("div", { className:"dm-grid", style:{display:"grid",gridTemplateColumns:layout.columns.map(c=>`${c.width}fr`).join(" "),gap:"14px"} },
