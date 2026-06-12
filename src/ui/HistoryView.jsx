@@ -2,15 +2,17 @@
 // Past-day browser: a list of logged days plus a per-tile readable summary of the
 // selected day, rendered from the union of tiles across all layouts.
 import React, { useState } from "react";
-import { fmtDate } from "../lib/helpers.js";
+import { fmtDate, dayKeyVal } from "../lib/helpers.js";
 
 export function HistoryView({ store }) {
   // #48 — newest-first by default; toggle to reverse. The "latest" day is always
-  // identified as the lexicographically-largest key (newest), independent of sort
+  // identified as the calendar-largest key (newest), independent of sort
   // direction — the badge anchors to the most recent day, not the topmost row.
+  // #78 — compare by real calendar value, not string order (unpadded keys like
+  // 2026-6-11 vs 2026-6-9 were alphabetized, ranking "11" before "9").
   const [sortDir, setSortDir] = useState("desc");
   const [sel, setSel] = useState(null);
-  const sortedDesc = Object.entries(store.days).sort((a,b)=>b[0].localeCompare(a[0]));
+  const sortedDesc = Object.entries(store.days).sort((a,b)=>dayKeyVal(b[0])-dayKeyVal(a[0]));
   const days = sortDir === "desc" ? sortedDesc : [...sortedDesc].reverse();
   const latestKey = sortedDesc[0]?.[0];
 

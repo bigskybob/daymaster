@@ -714,9 +714,9 @@ function App() {
     `),
 
     // HEADER
-    React.createElement("div", { className:"dm-header", style:{background:"var(--bg-header)",borderBottom:"1px solid var(--border-head)",padding:"12px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50} },
-      React.createElement("div", { style:{display:"flex",alignItems:"center",gap:"12px"} },
-        React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"20px",letterSpacing:"-0.5px"} },
+    React.createElement("div", { className:"dm-header", style:{background:"var(--bg-header)",borderBottom:"1px solid var(--border-head)",padding:"7px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50} },
+      React.createElement("div", { style:{display:"flex",alignItems:"center",gap:"12px",flexShrink:0} },
+        React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"17px",letterSpacing:"-0.5px"} },
           "Day", React.createElement("span", { style:{color:"var(--accent)"} }, "master")
         ),
         React.createElement(SyncDot, { status: isAuthed ? syncStatus : (authState==="no-config"?"offline":"idle") })

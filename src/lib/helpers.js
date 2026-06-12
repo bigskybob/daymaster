@@ -9,6 +9,14 @@ export function todayKey() {
   return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
 }
 
+// #78 — day keys are unpadded "Y-M-D" (e.g. 2026-6-9 / 2026-6-11), so a string
+// compare alphabetizes the leading digit and ranks "11" before "9". Sort on the
+// real calendar value instead. Works for padded or unpadded keys.
+export function dayKeyVal(key) {
+  const [y,m,d] = String(key).split("-").map(Number);
+  return (y||0)*10000 + (m||0)*100 + (d||0);
+}
+
 export function fmtDate(key) {
   const [y,m,d] = key.split("-");
   const dt = new Date(+y, +m-1, +d);
