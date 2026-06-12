@@ -609,6 +609,71 @@ function App() {
         --sep:          #1c2c3c;
       }
 
+      /* ── #74 throwback / novelty palettes ── */
+
+      /* Cherry Blossom — soft sakura pink (light) */
+      [data-theme="cherry"] {
+        --bg:#fbeef3; --bg-card:#fff6fa; --bg-header:#f4dde7; --bg-input:transparent; --bg-hover:#f7e7ee;
+        --border:#e6c4d3; --border-dim:#f0d6e1; --border-head:#dfb9c9;
+        --text:#48283a; --text-dim:#8a6577; --text-muted:#a98598; --text-faint:#c6a8b6; --text-xfaint:#dbc2cd;
+        --accent:#d96a92; --accent-dim:#d96a9222;
+        --scrollbar-track:#f1dbe4; --scrollbar-thumb:#dcb2c5; --input-border:#dfb9c9; --sep:#eed2dd;
+      }
+
+      /* Sky Blue — airy daytime blue (light) */
+      [data-theme="skyblue"] {
+        --bg:#e7f2fb; --bg-card:#f3f9ff; --bg-header:#d6e8f6; --bg-input:transparent; --bg-hover:#e0eef8;
+        --border:#a8cce8; --border-dim:#c9e0f1; --border-head:#97c0e0;
+        --text:#152f3f; --text-dim:#4a6f88; --text-muted:#6a90a8; --text-faint:#92b4cc; --text-xfaint:#b1cce0;
+        --accent:#2b8fd6; --accent-dim:#2b8fd622;
+        --scrollbar-track:#d8eaf6; --scrollbar-thumb:#a8cce8; --input-border:#97c0e0; --sep:#cce2f2;
+      }
+
+      /* Luck of the Irish — deep emerald + shamrock (dark) */
+      [data-theme="irish"] {
+        --bg:#0a160c; --bg-card:#122014; --bg-header:#07110a; --bg-input:transparent; --bg-hover:#16281a;
+        --border:#1f3a26; --border-dim:#182e1e; --border-head:#182e1e;
+        --text:#dbeede; --text-dim:#7ea286; --text-muted:#54705a; --text-faint:#3e5444; --text-xfaint:#2e3e33;
+        --accent:#3fb950; --accent-dim:#3fb95022;
+        --scrollbar-track:#0c160e; --scrollbar-thumb:#1f3a26; --input-border:#1d3624; --sep:#182e1e;
+      }
+
+      /* Eagle Eye — dark slate with a sharp amber gaze */
+      [data-theme="eagle"] {
+        --bg:#14110c; --bg-card:#1d1810; --bg-header:#0f0c08; --bg-input:transparent; --bg-hover:#241d12;
+        --border:#3a2e1a; --border-dim:#2a2212; --border-head:#2a2212;
+        --text:#ece4d2; --text-dim:#a89272; --text-muted:#786448; --text-faint:#564732; --text-xfaint:#3c3122;
+        --accent:#d9a528; --accent-dim:#d9a52822;
+        --scrollbar-track:#100d09; --scrollbar-thumb:#3a2e1a; --input-border:#34291a; --sep:#2a2212;
+      }
+
+      /* Lumberjack — flannel red on near-black (dark) */
+      [data-theme="lumber"] {
+        --bg:#1a1212; --bg-card:#241818; --bg-header:#140d0d; --bg-input:transparent; --bg-hover:#2a1c1c;
+        --border:#5a2424; --border-dim:#3a1e1e; --border-head:#3a1e1e;
+        --text:#e8ddd2; --text-dim:#b08878; --text-muted:#7a5a50; --text-faint:#564038; --text-xfaint:#3e2e28;
+        --accent:#c0392b; --accent-dim:#c0392b22;
+        --scrollbar-track:#160f0f; --scrollbar-thumb:#3a2424; --input-border:#4a2020; --sep:#3a1e1e;
+      }
+
+      /* Ketchup / Mustard — bun-cream with ketchup-red accent */
+      [data-theme="ketchup"] {
+        --bg:#f3e9d2; --bg-card:#faf2e0; --bg-header:#ecdfc2; --bg-input:transparent; --bg-hover:#efe6cf;
+        --border:#c9a35a; --border-dim:#ddc890; --border-head:#bf9748;
+        --text:#3a2410; --text-dim:#7a5a30; --text-muted:#9a7a50; --text-faint:#b89a6a; --text-xfaint:#ccb488;
+        --accent:#c0392b; --accent-dim:#c0392b22;
+        --scrollbar-track:#e8dcc0; --scrollbar-thumb:#d4a017; --input-border:#bf9748; --sep:#ddc890;
+      }
+
+      /* Hot Dog Stand — the authentic Windows 3.1 scheme: bright red + yellow + black */
+      [data-theme="hotdog"] {
+        --bg:#c20000; --bg-card:#e00000; --bg-header:#9c0000; --bg-input:transparent; --bg-hover:#d41414;
+        --border:#ffe000; --border-dim:#a83030; --border-head:#ffd000;
+        --text:#ffffff; --text-dim:#ffe45a; --text-muted:#ffd23c; --text-faint:#ffb4a4; --text-xfaint:#e08a78;
+        --accent:#ffe000; --accent-dim:#ffe00033;
+        --scrollbar-track:#9c0000; --scrollbar-thumb:#ffd000; --input-border:#ffe000; --sep:#ffd000;
+      }
+
       *{box-sizing:border-box;margin:0;padding:0;}
       input,textarea,button{font-family:inherit;}
       input:focus,textarea:focus{outline:none;}
