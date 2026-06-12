@@ -67,7 +67,7 @@ export function TileChecklist({ config, data={}, onChange, editMode, onRemove, o
               onChange: e => {
                 const n=[...manualChecks]; n[i]=e.target.checked; onChange({...data,checks:n});
               },
-              style:{accentColor:isAuto?"#8a7040":"#c8a96e",width:"13px",height:"13px",cursor:isAuto?"default":"pointer"}
+              style:{accentColor:"var(--accent)",width:"13px",height:"13px",cursor:isAuto?"default":"pointer"}
             }),
             isAuto && React.createElement("span", {
               style:{position:"absolute",top:"-1px",right:"-8px",fontSize:"8px",color:"var(--accent)",pointerEvents:"none",lineHeight:1}
@@ -451,7 +451,7 @@ export function TileCheckIn({ config, data={}, onChange, editMode, onRemove, all
             React.createElement("div", { key:i, style:{display:"flex",alignItems:"flex-start",gap:"6px"} },
               React.createElement("input", { type:"checkbox", checked:!!it.done,
                 onChange: e => { const n=[...items]; n[i]={...it,done:e.target.checked}; onChange({...data,items:n}); },
-                style:{marginTop:"4px",flexShrink:0,accentColor:"#c8a96e",width:"13px",height:"13px",cursor:"pointer"} }),
+                style:{marginTop:"4px",flexShrink:0,accentColor:"var(--accent)",width:"13px",height:"13px",cursor:"pointer"} }),
               React.createElement(AutoTA, { value:it.text||"", placeholder:"...",
                 onChange: v => { const n=[...items]; n[i]={...it,text:v}; onChange({...data,items:n}); },
                 style: it.done ? {textDecoration:"line-through",color:"var(--text-muted)"} : {} })
@@ -551,8 +551,9 @@ export function TilePlanks({ config, data={}, onChange, editMode, onRemove, onCo
           return React.createElement("button", { key:k,
             onClick:()=>{ if (auto && !p[k]) return; onChange({...data,planks:{...p,[k]:!p[k]}}); },
             title: auto ? "Auto-checked by a link" : undefined,
-            style:{background:on?"#2a3a2a":"var(--bg-hover)",border:`1px solid ${on?"#4a7a4a":"var(--border)"}`,
-              color:on?"#7ac97a":"#555",fontFamily:"var(--font-body)",fontSize:"11px",
+            // #76 polish — "done" + auto (⚡) slot states follow the theme accent.
+            style:{background:on?"var(--accent-dim)":"var(--bg-hover)",border:`1px solid ${on?"var(--accent)":"var(--border)"}`,
+              color:on?"var(--accent)":"var(--text-muted)",fontFamily:"var(--font-body)",fontSize:"11px",
               padding:"7px 4px",borderRadius:"3px",cursor:auto&&!p[k]?"default":"pointer"} }, auto ? `⚡ ${label}` : label);
         })
       ),
@@ -574,7 +575,8 @@ export function TilePlanks({ config, data={}, onChange, editMode, onRemove, onCo
           style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",width:"28px",height:"28px",
             borderRadius:"4px",cursor:"pointer",fontSize:"14px",lineHeight:"28px",textAlign:"center"} }, "+"),
         React.createElement("button", { onClick:()=>setRunning(true),
-          style:{background:"#1a3a1a",border:"1px solid #3a6a3a",color:"#7ac97a",padding:"6px 14px",
+          // #76 polish — primary action follows the theme accent (was hardcoded green).
+          style:{background:"var(--accent-dim)",border:"1px solid var(--accent)",color:"var(--accent)",padding:"6px 14px",
             borderRadius:"4px",cursor:"pointer",fontFamily:"var(--font-body)",fontSize:"11px",letterSpacing:"0.5px"} },
           "▶ Start")
       )
@@ -664,9 +666,11 @@ export function TileDangles({ config, data={}, onChange, editMode, onRemove, onC
       React.createElement("button", {
         onClick: () => { if (!allDone) setRunning(true); },
         disabled: allDone,
-        style:{width:"100%",background:allDone?"#0a1a0a":"#1a0a2a",
-          border:`1px solid ${allDone?"#2a4a2a":"#4a2a6a"}`,
-          color:allDone?"#4a7a4a":"#9a7ab0",padding:"8px",borderRadius:"4px",
+        // #76 polish — primary action follows the theme accent (was hardcoded purple);
+        // the done state keeps the app-wide "done" green semantic.
+        style:{width:"100%",background:allDone?"#0a1a0a":"var(--accent-dim)",
+          border:`1px solid ${allDone?"#2a4a2a":"var(--accent)"}`,
+          color:allDone?"#4a7a4a":"var(--accent)",padding:"8px",borderRadius:"4px",
           cursor:allDone?"default":"pointer",fontFamily:"var(--font-body)",
           fontSize:"11px",letterSpacing:"1px"}
       }, allDone ? "✓ All sets done" : `▶ Start ${SLOT_LABELS[startIdx]} set`)

@@ -50,13 +50,15 @@ export function BulletList({ items, onChange, placeholder="..." }) {
 // the user's stored value; `auto` is whether a link currently drives it on.
 // Effective = manual OR auto; when auto-only the box is locked + flagged ⚡
 // (same affordance the checklist auto-rules already use). onChange(bool).
-export function LinkedCheck({ manual, auto, onChange, accent="#c8a96e", style={} }) {
+export function LinkedCheck({ manual, auto, onChange, accent="var(--accent)", style={} }) {
   const effective = manual || auto;
   const locked = auto && !manual;
   return React.createElement("div", { style:{position:"relative",flexShrink:0,...style} },
+    // #76 polish — checkbox tint follows the theme accent (auto-checks are signalled
+    // by the ⚡ badge + locked state, so no separate hardcoded color is needed).
     React.createElement("input", { type:"checkbox", checked: effective, disabled: locked,
       onChange: e => onChange(e.target.checked),
-      style:{accentColor: auto?"#8a7040":accent, width:"13px", height:"13px", cursor: locked?"default":"pointer"} }),
+      style:{accentColor: accent, width:"13px", height:"13px", cursor: locked?"default":"pointer"} }),
     auto && React.createElement("span", { title:"Auto-checked by a link",
       style:{position:"absolute",top:"-1px",right:"-8px",fontSize:"8px",color:"var(--accent)",pointerEvents:"none",lineHeight:1} }, "⚡")
   );
