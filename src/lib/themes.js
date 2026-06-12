@@ -15,6 +15,15 @@ export const THEMES = [
   { key: "lumber",  name: "🪵 Lumberjack" },
   { key: "ketchup", name: "🍔 Ketchup / Mustard" },
   { key: "hotdog",  name: "🌭 Hot Dog Stand" },
+  // #76 — the authentic Windows 3.1 Control Panel stock schemes, ported into our
+  // variable system (signature hues kept; tonal relationships adapted so the shared
+  // header/body text stays readable — a literal navy title bar would not).
+  { key: "win31",       name: "🪟 Windows Default" },
+  { key: "bordeaux",    name: "🍷 Bordeaux" },
+  { key: "pastel",      name: "🎨 Pastel" },
+  { key: "fluorescent", name: "⚡ Fluorescent" },
+  { key: "tweed",       name: "🧶 Tweed" },
+  { key: "monochrome",  name: "🖤 Monochrome" },
 ];
 
 // #60 — selectable font styles. Each key (except "mono") has a [data-font="<key>"]

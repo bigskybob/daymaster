@@ -680,6 +680,62 @@ function App() {
         --scrollbar-track:#9c0000; --scrollbar-thumb:#ffd000; --input-border:#ffe000; --sep:#ffd000;
       }
 
+      /* ── #76 authentic Windows 3.1 stock schemes ── */
+
+      /* Windows Default — the signature teal desktop + silver window + navy highlight */
+      [data-theme="win31"] {
+        --bg:#008080; --bg-card:#d6d6d6; --bg-header:#bfbfbf; --bg-input:transparent; --bg-hover:#cacaca;
+        --border:#808080; --border-dim:#a4a4a4; --border-head:#808080;
+        --text:#0a0a0a; --text-dim:#3a3a4a; --text-muted:#5a5a6a; --text-faint:#7a7a8a; --text-xfaint:#9a9aaa;
+        --accent:#000080; --accent-dim:#00008022;
+        --scrollbar-track:#c0c0c0; --scrollbar-thumb:#808080; --input-border:#808080; --sep:#a8a8a8;
+      }
+
+      /* Bordeaux — deep wine desktop with magenta/pink (dark) */
+      [data-theme="bordeaux"] {
+        --bg:#2a0a24; --bg-card:#3a1234; --bg-header:#220a1e; --bg-input:transparent; --bg-hover:#46183e;
+        --border:#5e2452; --border-dim:#42183a; --border-head:#42183a;
+        --text:#f0dceb; --text-dim:#c08fb4; --text-muted:#8e6384; --text-faint:#6a4860; --text-xfaint:#4c3346;
+        --accent:#d65a9e; --accent-dim:#d65a9e22;
+        --scrollbar-track:#220a1e; --scrollbar-thumb:#5e2452; --input-border:#56204a; --sep:#42183a;
+      }
+
+      /* Pastel — soft lavender/periwinkle (light) */
+      [data-theme="pastel"] {
+        --bg:#eef0f8; --bg-card:#f8f6fc; --bg-header:#e2e6f2; --bg-input:transparent; --bg-hover:#eceef8;
+        --border:#cdd2e6; --border-dim:#dfe3f0; --border-head:#bfc6de;
+        --text:#3a3550; --text-dim:#6f6a8a; --text-muted:#9692ac; --text-faint:#b8b5c8; --text-xfaint:#d0cede;
+        --accent:#8a7fd6; --accent-dim:#8a7fd622;
+        --scrollbar-track:#e2e2ee; --scrollbar-thumb:#c4c2dc; --input-border:#bfc6de; --sep:#d8dae8;
+      }
+
+      /* Fluorescent — neon lime on near-black (dark) */
+      [data-theme="fluorescent"] {
+        --bg:#0a0f0a; --bg-card:#12160f; --bg-header:#080c08; --bg-input:transparent; --bg-hover:#1a2014;
+        --border:#2f7a1f; --border-dim:#1f3a16; --border-head:#1f3a16;
+        --text:#eaffd8; --text-dim:#7fdc4f; --text-muted:#56a030; --text-faint:#3e6e26; --text-xfaint:#2c4a1c;
+        --accent:#a6ff00; --accent-dim:#a6ff0022;
+        --scrollbar-track:#080c08; --scrollbar-thumb:#2f7a1f; --input-border:#2a6a1c; --sep:#1f3a16;
+      }
+
+      /* Tweed — warm gray desktop with cream windows (light) */
+      [data-theme="tweed"] {
+        --bg:#9a9488; --bg-card:#e8e4da; --bg-header:#b0aa9e; --bg-input:transparent; --bg-hover:#ddd8cc;
+        --border:#b8b2a4; --border-dim:#cfc9bc; --border-head:#a8a294;
+        --text:#2e2a22; --text-dim:#6a6458; --text-muted:#8a8478; --text-faint:#a8a294; --text-xfaint:#bdb7a8;
+        --accent:#7a5c3a; --accent-dim:#7a5c3a22;
+        --scrollbar-track:#cfc9bc; --scrollbar-thumb:#a8a294; --input-border:#a8a294; --sep:#c4beb0;
+      }
+
+      /* Monochrome — pure grayscale: gray desktop, white window, black text */
+      [data-theme="monochrome"] {
+        --bg:#808080; --bg-card:#ffffff; --bg-header:#c0c0c0; --bg-input:transparent; --bg-hover:#ededed;
+        --border:#808080; --border-dim:#b0b0b0; --border-head:#808080;
+        --text:#000000; --text-dim:#404040; --text-muted:#707070; --text-faint:#969696; --text-xfaint:#b8b8b8;
+        --accent:#000000; --accent-dim:#00000018;
+        --scrollbar-track:#c0c0c0; --scrollbar-thumb:#808080; --input-border:#808080; --sep:#b0b0b0;
+      }
+
       *{box-sizing:border-box;margin:0;padding:0;}
       input,textarea,button{font-family:inherit;}
       input:focus,textarea:focus{outline:none;}
