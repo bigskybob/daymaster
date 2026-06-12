@@ -468,12 +468,17 @@ function App() {
   const allLayoutEntries = Object.entries(store.layouts || {});
   const d = new Date();
 
-  const headerBtn = (label, onClick, active=false, extra={}) => React.createElement("button", {
-    onClick,
-    style:{background:active?"var(--accent-dim)":"var(--bg-hover)",border:`1px solid ${active?"var(--accent)":"var(--border)"}`,
-      color:active?"var(--accent)":"var(--text-dim)",padding:"5px 12px",borderRadius:"4px",cursor:"pointer",
-      fontFamily:"var(--font-body)",fontSize:"10px",letterSpacing:"0.5px",...extra}
-  }, label);
+  // #72 — pull `title` out of extra so it lands on the button as a real tooltip
+  // attribute (it was being spread into `style`, so hover tooltips never showed).
+  const headerBtn = (label, onClick, active=false, extra={}) => {
+    const { title, ...styleExtra } = extra;
+    return React.createElement("button", {
+      onClick, title,
+      style:{background:active?"var(--accent-dim)":"var(--bg-hover)",border:`1px solid ${active?"var(--accent)":"var(--border)"}`,
+        color:active?"var(--accent)":"var(--text-dim)",padding:"5px 12px",borderRadius:"4px",cursor:"pointer",
+        fontFamily:"var(--font-body)",fontSize:"10px",letterSpacing:"0.5px",...styleExtra}
+    }, label);
+  };
 
   return React.createElement("div", { style:{minHeight:"100vh",
       // #25 — optional background image (dimmed scrim keeps tiles readable).
@@ -771,11 +776,17 @@ function App() {
             fontFamily:"var(--font-body)",fontSize:"10px",padding:"4px 8px",borderRadius:"4px",
             cursor:"pointer",letterSpacing:"0.5px"}
         }, FONTS.map(f => React.createElement("option", { key:f.key, value:f.key }, f.name))),
-        // #25 — set/clear a background image (per-device).
-        headerBtn(bg ? "🖼 BG ✓" : "🖼 BG", () => {
-          const u = window.prompt("Background image URL (leave blank to clear):", bg);
+        // #25 — set/clear a background image (per-device). #72 — clearer label,
+        // tooltip, and prompt copy so it's obvious what the control does.
+        headerBtn(bg ? "🖼 Background ✓" : "🖼 Background", () => {
+          const u = window.prompt(
+            "Background image\n\nPaste an image URL to show it behind your tiles (a dark scrim keeps text readable). Saved on this device only.\n\nLeave blank and press OK to remove it.",
+            bg
+          );
           if (u !== null) setBg(u);
-        }, !!bg, { fontSize:"9px", padding:"4px 8px" }),
+        }, !!bg, { fontSize:"9px", padding:"4px 8px",
+          title: bg ? "Background image is set — click to change the URL or clear it (this device only)"
+                    : "Set a background image from a URL (this device only)" }),
         // #14 — opt-in check-in reminders (browser notifications).
         headerBtn(remind ? "🔔 On" : "🔔 Off", toggleRemind, remind, { fontSize:"9px", padding:"4px 8px" }),
         React.createElement("div", { style:{width:"1px",height:"18px",background:"var(--sep)",margin:"0 2px"} }),
