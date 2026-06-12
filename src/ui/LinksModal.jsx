@@ -96,7 +96,7 @@ export function LinksModal({ tiles, links, onAdd, onRemove, onClose }) {
       sources.length > 1 && React.createElement("div", { style: { display: "flex", gap: "6px", marginBottom: "10px" } },
         ["all", "any"].map(m => React.createElement("button", { key: m, onClick: () => setMode(m),
           style: { ...tinyBtn, flex: 1, background: mode === m ? "var(--accent-dim)" : "var(--bg-card)", borderColor: mode === m ? "var(--accent)" : "var(--border)", color: mode === m ? "var(--accent)" : "var(--text-dim)" } },
-          m === "all" ? "ALL of these" : "ANY of these"))),
+          m === "all" ? "AND" : "OR"))),
 
       sectionLbl("check this box"),
       React.createElement("select", { value: target, onChange: e => setTarget(e.target.value), style: { ...inputStyle, marginBottom: target && siblings.length ? "8px" : "14px" } },
