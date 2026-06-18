@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { CardShell, AutoTA, BulletList, CB, LinkedCheck, iconBtnStyle, EmojiPicker } from "./ui.jsx";
 import { FullscreenTimer } from "./ui/FullscreenTimer.jsx";
-import { evaluateRule, TILE_EVENTS, checkinIsDone, deriveCheckinSlot, checkinScheduleMin, currentSlotKey } from "./lib/rules.js";
+import { evaluateRule, TILE_EVENTS, checkinFullyDone, deriveCheckinSlot, checkinScheduleMin, currentSlotKey } from "./lib/rules.js";
 import { isLinkAutoOn } from "./lib/fieldlinks.js";
 import { uid, todayKey, fmtDate, DAYS, MONTHS } from "./lib/helpers.js";
 import { fetchTodayEvents, fetchCalendarList, fmtEventTime, clearCalendarListCache } from "./lib/calendar.js";
@@ -369,9 +369,11 @@ export function TileCheckIn({ config, data={}, onChange, editMode, onRemove, all
   const foodAuto   = isLinkAutoOn(tileId, "food",       links, allDayData||{}, tilesById);
   const priAuto    = isLinkAutoOn(tileId, "priorities", links, allDayData||{}, tilesById);
 
-  // #37 — feeling (emoji) and feelingNote (text) are paired and either may be set.
-  // Completion logic lives in the shared checkinIsDone so #35's reordering agrees.
-  const isDone = checkinIsDone(config, data, allDayData);
+  // #37 / #81 — completion logic lives in the shared checkinFullyDone so #35's
+  // reordering agrees. "auto" = done from the boxes alone (ignoring the manual flag);
+  // "fullyDone" = auto OR an explicit manual check-off (data._done).
+  const autoDone = checkinFullyDone(config, { ...data, _done: false }, allDayData);
+  const fullyDone = autoDone || data._done === true;
 
   // #61 — capture mode: "feelings" hides the planning ("Next") column + the
   // "Next Priorities" flag, leaving a feelings-only check-in. Default = both.
@@ -406,7 +408,14 @@ export function TileCheckIn({ config, data={}, onChange, editMode, onRemove, all
         data._dismissed
           ? React.createElement("span", { title:"Restore", onClick:()=>onChange({...data, _dismissed:false}), style:{cursor:"pointer",fontSize:"11px"} }, "↺")
           : React.createElement("span", { title:"Dismiss for today", onClick:()=>onChange({...data, _dismissed:true}), style:{cursor:"pointer",fontSize:"11px"} }, "✕"),
-        isDone && React.createElement("span", { style:{fontSize:"13px"} }, "✓")
+        // #81 — manual "mark done" toggle. A faint ✓ invites an explicit check-off;
+        // solid when fully done. Auto-done (all boxes) is locked (you can't un-finish
+        // a genuinely complete block); manual-done stays clickable to reopen.
+        React.createElement("span", {
+          title: fullyDone ? (autoDone ? "Completed" : "Marked done — click to reopen") : "Mark check-in done",
+          onClick: autoDone ? undefined : () => onChange({ ...data, _done: !data._done }),
+          style:{ cursor: autoDone ? "default" : "pointer", fontSize:"13px", opacity: fullyDone ? 1 : 0.4 }
+        }, "✓")
       )
     ),
     frog && React.createElement("div", {

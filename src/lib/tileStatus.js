@@ -1,7 +1,7 @@
 // Tile completion + title helpers, shared by the App shell (Focus mode collapse,
 // history labels). Kept out of the tile renderers so these read-only derivations
 // don't pull React into pure-logic call sites.
-import { checkinIsDone } from "./rules.js";
+import { checkinFullyDone } from "./rules.js";
 import { TILE_TYPES } from "../tiles/registry.js";
 
 // #2 / #54 — is a tile "complete" for the day? Used by Focus mode to collapse
@@ -10,7 +10,7 @@ import { TILE_TYPES } from "../tiles/registry.js";
 // fully visible. Covers the morning-input + daily-flow tiles that benefit most.
 export function tileComplete(tile, d = {}, allDayData = {}) {
   switch (tile.type) {
-    case "checkin":    return checkinIsDone(tile.config, d, allDayData);
+    case "checkin":    return checkinFullyDone(tile.config, d, allDayData);
     case "textprompt": return !!(d.text && d.text.trim());
     case "twoprompt":  return !!(d.textA?.trim() && d.textB?.trim());
     case "guidedam":   return !!(d.textA?.trim() && d.textB?.trim() && d.textC?.trim());

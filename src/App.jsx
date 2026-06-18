@@ -7,7 +7,7 @@ import { useGoogleAuth } from "./lib/useGoogleAuth.js";
 import { loadFromDrive, saveToDrive } from "./lib/drive.js";
 import { emptyStore, migrateLayout, buildOnboardingLayout } from "./lib/store.js";
 import { mergeStores } from "./lib/sync.js";
-import { checkinIsDone, checkinScheduleMin } from "./lib/rules.js";
+import { checkinIsDone, checkinFullyDone, checkinScheduleMin } from "./lib/rules.js";
 import { DAYS, MONTHS, todayKey, uid } from "./lib/helpers.js";
 import { THEMES, FONTS } from "./lib/themes.js";
 import { tileComplete, tileTitle } from "./lib/tileStatus.js";
@@ -910,7 +910,9 @@ function App() {
           if (!editMode && checkinIds.length) {
             const meta = new Map(checkinIds.map(t => {
               const td = todayData[t.id] || {};
-              const done = checkinIsDone(t.config, td, todayData);
+              // #81 — only a FULLY-complete (or manually marked) check-in sinks to the
+              // bottom; filling one section no longer dismisses the whole block.
+              const done = checkinFullyDone(t.config, td, todayData);
               const sched = checkinScheduleMin(t.config);
               // #6 — delay pushes the effective scheduled time; dismiss hides outright.
               const eff = sched != null ? sched + (td._delayMin || 0) : null;

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  evaluateRule, deriveCheckinSlot, checkinScheduleMin, checkinIsDone,
+  evaluateRule, deriveCheckinSlot, checkinScheduleMin, checkinIsDone, checkinFullyDone,
 } from "../src/lib/rules.js";
 
 describe("deriveCheckinSlot", () => {
@@ -39,6 +39,33 @@ describe("checkinIsDone", () => {
     const all = { planks: { planks: { am: true } } };
     expect(checkinIsDone({ title: "8:30", planksSlot: "am" }, {}, all)).toBe(true);
     expect(checkinIsDone({ title: "8:30", planksSlot: "noon" }, {}, all)).toBe(false);
+  });
+});
+
+describe("checkinFullyDone — #81 strict gate for auto-sink / collapse", () => {
+  it("is false until EVERY planning box is satisfied (not just one)", () => {
+    expect(checkinFullyDone({ title: "8:30", planksSlot: "none" }, {}, {})).toBe(false);
+    // one or two boxes is no longer 'done' — this is the bug #81 fixes
+    expect(checkinFullyDone({ title: "8:30", planksSlot: "none" }, { food: true }, {})).toBe(false);
+    expect(checkinFullyDone({ title: "8:30", planksSlot: "none" }, { food: true, priorities: true }, {})).toBe(false);
+    expect(checkinFullyDone({ title: "8:30", planksSlot: "none" }, { planks: true, food: true, priorities: true }, {})).toBe(true);
+  });
+  it("a feeling alone does NOT complete a planning check-in", () => {
+    expect(checkinFullyDone({ title: "8:30", planksSlot: "none" }, { feeling: "🙂" }, {})).toBe(false);
+  });
+  it("counts the planks box as satisfied when auto-checked from the planks slot", () => {
+    const all = { planks: { planks: { am: true } } };
+    expect(checkinFullyDone({ title: "8:30", planksSlot: "am" }, { food: true, priorities: true }, all)).toBe(true);
+    expect(checkinFullyDone({ title: "8:30", planksSlot: "am" }, { food: true }, all)).toBe(false);
+  });
+  it("a feelings-only check-in is done when a feeling or note is set", () => {
+    expect(checkinFullyDone({ title: "8:30", capture: "feelings" }, {}, {})).toBe(false);
+    expect(checkinFullyDone({ title: "8:30", capture: "feelings" }, { feeling: "🙂" }, {})).toBe(true);
+    expect(checkinFullyDone({ title: "8:30", capture: "feelings" }, { feelingNote: "ok" }, {})).toBe(true);
+  });
+  it("respects an explicit manual check-off regardless of the boxes", () => {
+    expect(checkinFullyDone({ title: "8:30", planksSlot: "none" }, { _done: true }, {})).toBe(true);
+    expect(checkinFullyDone({ title: "8:30", planksSlot: "none" }, { food: true, _done: false }, {})).toBe(false);
   });
 });
 

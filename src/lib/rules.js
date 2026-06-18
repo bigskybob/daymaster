@@ -188,4 +188,24 @@ export function checkinIsDone(config={}, data={}, allDayData={}) {
     || data.feeling?.trim() || data.feelingNote?.trim());
 }
 
+// #81 — a STRICTER "fully done" check than checkinIsDone's "any activity" OR. A
+// planning check-in is fully done only when every applicable box is satisfied
+// (planks/food/next-priorities); a feelings-only check-in (capture:"feelings", no
+// planning boxes) when a feeling or note is set. An explicit manual check-off
+// (data._done === true) always counts. This gates the view-mode auto-sink (App) and
+// the Focus-mode collapse (tileStatus) so filling a single section no longer
+// dismisses the whole block. checkinIsDone (OR) is still used for the pre-check-in
+// notification suppression — once you've engaged at all, stop nagging.
+export function checkinFullyDone(config={}, data={}, allDayData={}) {
+  if (data._done === true) return true;
+  if (config.capture === "feelings") {
+    return !!(data.feeling?.trim() || data.feelingNote?.trim());
+  }
+  const planksSlot = config.planksSlot || deriveCheckinSlot(config.title);
+  const planksAutoChecked = planksSlot && planksSlot !== "none"
+    && !!(allDayData?.planks?.planks?.[planksSlot]);
+  const planksEffective = !!data.planks || planksAutoChecked;
+  return planksEffective && !!data.food && !!data.priorities;
+}
+
 
