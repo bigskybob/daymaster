@@ -21,6 +21,8 @@ import { LayoutPreview } from "./ui/LayoutPreview.jsx";
 import { ConfigModal } from "./ui/ConfigModal.jsx";
 import { HistoryView } from "./ui/HistoryView.jsx";
 import { LinksModal } from "./ui/LinksModal.jsx";
+import { TabsModal } from "./ui/TabsModal.jsx";
+import { ALL_TAB, visibleColumnsForTab, tabExists, withoutTab } from "./lib/tabs.js";
 import { workerConfigured } from "./lib/notion.js";
 import { APP_VERSION, BUILD_DATE } from "./version.js";
 
@@ -42,6 +44,8 @@ function App() {
   const [editMode, setEditMode]   = useState(false);
   const [configTile, setConfigTile] = useState(null);
   const [showLinks, setShowLinks] = useState(false); // field-links manager (Phase C)
+  const [showTabs, setShowTabs]   = useState(false); // #84 — header-tabs manager
+  const [activeTab, setActiveTab] = useState(ALL_TAB); // #84 — selected header tab (view mode)
   const [dragState, setDragState] = useState(null);
   const [theme, setTheme]         = useState(() => localStorage.getItem(THEME_KEY) || "dark");
   const [font, setFont]           = useState(() => localStorage.getItem(FONT_KEY) || "mono"); // #60
@@ -301,6 +305,15 @@ function App() {
   const addLink    = useCallback(link => mutateLayout(l => ({ ...l, links: [...(l.links||[]), link] })), []);
   const removeLink = useCallback(idx  => mutateLayout(l => ({ ...l, links: (l.links||[]).filter((_, i) => i !== idx) })), []);
 
+  // #84 — header tabs (named module sets) live on the active layout (layout.tabs);
+  // a tile's tab is stored in its config.tab. Removing a tab also clears it off any
+  // tile (withoutTab) and resets the view to All if it was the one showing.
+  const addTab    = useCallback(name => mutateLayout(l => ({ ...l, tabs: [...(l.tabs||[]), { id: "tab-"+uid().slice(0,6), name }] })), []);
+  const renameTab = useCallback((id, name) => mutateLayout(l => ({ ...l, tabs: (l.tabs||[]).map(t => t.id===id ? { ...t, name } : t) })), []);
+  const removeTab = useCallback(id => { mutateLayout(l => withoutTab(l, id)); setActiveTab(a => a===id ? ALL_TAB : a); }, []);
+  const assignTileTab = useCallback((colId, tileId, tabId) =>
+    mutateLayout(l => ({ ...l, columns: l.columns.map(c => c.id===colId ? { ...c, tiles: c.tiles.map(t => t.id===tileId ? { ...t, config: { ...t.config, tab: tabId } } : t) } : c) })), []);
+
   const moveTile = useCallback((colId, from, to) =>
     mutateLayout(l => ({ ...l, columns: l.columns.map(c => {
       if (c.id!==colId) return c;
@@ -468,6 +481,13 @@ function App() {
   const todayData = store.days[todayKey()]||{};
   const allLayoutEntries = Object.entries(store.layouts || {});
   const d = new Date();
+
+  // #84 — header tabs filter the grid in view mode. Fall back to "All" when the
+  // active tab was deleted or belongs to a different layout preset. Edit mode always
+  // shows every tile (tabs are assigned per tile via the ⊞ Tabs modal).
+  const layoutTabs   = layout.tabs || [];
+  const effectiveTab = tabExists(layout, activeTab) ? activeTab : ALL_TAB;
+  const renderColumns = !editMode ? visibleColumnsForTab(layout.columns, effectiveTab) : layout.columns;
 
   // #72 — pull `title` out of extra so it lands on the button as a real tooltip
   // attribute (it was being spread into `style`, so hover tooltips never showed).
@@ -811,6 +831,8 @@ function App() {
         editMode && allLayoutEntries.length > 1 && headerBtn("🗑 Delete", deleteLayout, false, {fontSize:"9px",padding:"4px 8px",color:"#a08070"}),
         // field-links (Phase C) — manage auto-check links for the active layout
         editMode && headerBtn("🔗 Links", ()=>setShowLinks(true), (layout.links||[]).length>0, {fontSize:"9px",padding:"4px 8px"}),
+        // #84 — manage header tabs (named module sets) for the active layout
+        editMode && headerBtn("⊞ Tabs", ()=>setShowTabs(true), (layout.tabs||[]).length>0, {fontSize:"9px",padding:"4px 8px"}),
         React.createElement("div", { style:{width:"1px",height:"18px",background:"var(--sep)",margin:"0 2px"} }),
         headerBtn(editMode?"✓ Done":"✎ Layout", ()=>setEditMode(e=>!e), editMode,
           editMode?{background:"var(--accent)",color:"var(--bg)",border:"1px solid var(--accent)"}:{}),
@@ -869,6 +891,21 @@ function App() {
     view==="history" && React.createElement(HistoryView, { store }),
 
     view==="today" && React.createElement("div", { className:"dm-main", style:{padding:"16px"} },
+      // #84 — header tab strip (view mode). Quick-switch between named module sets;
+      // horizontally scrollable so it works with many tabs on mobile.
+      !editMode && layoutTabs.length > 0 && React.createElement("div", {
+        className:"dm-tabstrip",
+        style:{display:"flex",gap:"6px",marginBottom:"14px",overflowX:"auto",paddingBottom:"2px"}
+      },
+        [{ id:ALL_TAB, name:"All" }, ...layoutTabs].map(tab => {
+          const on = effectiveTab === tab.id;
+          return React.createElement("button", { key:tab.id, onClick:()=>setActiveTab(tab.id),
+            style:{flexShrink:0,background:on?"var(--accent)":"var(--bg-hover)",
+              color:on?"var(--bg)":"var(--text-dim)",border:`1px solid ${on?"var(--accent)":"var(--border)"}`,
+              fontFamily:"var(--font-display)",fontSize:"10px",letterSpacing:"1px",textTransform:"uppercase",
+              padding:"5px 12px",borderRadius:"5px",cursor:"pointer",whiteSpace:"nowrap"} }, tab.name);
+        })
+      ),
       // #61 — one-time post-onboarding orientation: point new users at layout editing.
       showLayoutTip && !editMode && React.createElement("div", {
         style:{display:"flex",alignItems:"center",gap:"12px",flexWrap:"wrap",background:"var(--accent-dim)",
@@ -897,8 +934,13 @@ function App() {
       editMode && React.createElement(LayoutPreview, { columns:layout.columns }),
       editMode && React.createElement(TileLibrary, { onAdd:addTile, columns:layout.columns }),
 
-      React.createElement("div", { className:"dm-grid", style:{display:"grid",gridTemplateColumns:layout.columns.map(c=>`${c.width}fr`).join(" "),gap:"14px"} },
-        layout.columns.map((col, colIdx) => {
+      // #84 — a named tab with nothing assigned yet renders an empty-state hint.
+      !editMode && renderColumns.length === 0 && React.createElement("div", {
+        style:{textAlign:"center",color:"var(--text-faint)",fontSize:"12px",fontStyle:"italic",padding:"40px 16px"}
+      }, "No modules on this tab yet — add some in ✎ Layout → ⊞ Tabs."),
+
+      React.createElement("div", { className:"dm-grid", style:{display:"grid",gridTemplateColumns:renderColumns.map(c=>`${c.width}fr`).join(" "),gap:"14px"} },
+        renderColumns.map((col, colIdx) => {
           // #35 — view-mode reorder/hide of check-in tiles. Completed blocks sink to
           // the bottom of their group; incomplete blocks more than an hour past their
           // scheduled time are pulled out behind a reveal toggle so the morning's
@@ -1103,6 +1145,17 @@ function App() {
       onAdd: addLink,
       onRemove: removeLink,
       onClose: () => setShowLinks(false),
+    }),
+
+    // #84 — header-tabs manager: create/rename/delete tabs + assign tiles to them.
+    showTabs && React.createElement(TabsModal, {
+      tiles: layout.columns.flatMap(c => c.tiles.map(t => ({ ...t, _colId: c.id }))),
+      tabs: layout.tabs || [],
+      onAdd: addTab,
+      onRename: renameTab,
+      onRemove: removeTab,
+      onAssign: assignTileTab,
+      onClose: () => setShowTabs(false),
     }),
 
     // #61 — "added" confirmation toast (auto-dismisses with justAdded). Reassures
