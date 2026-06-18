@@ -123,12 +123,21 @@ export function TilePriorities({ config, data={}, onChange, editMode, onRemove, 
   );
 }
 
-export function TileProject({ config, data={}, onChange, editMode, onRemove, onConfig, tileId, allDayData, tilesById, links }) {
+export function TileProject({ config, data={}, onChange, onConfigPatch, editMode, onRemove, onConfig, tileId, allDayData, tilesById, links }) {
   const count = config.count||4;
+  // #83 — persist mode: items + title live in config (one list shared across every
+  // day, like the AI Ideas tile) and are written via onConfigPatch. The display
+  // seeds from today's per-day data on first use (config.items ?? data.items), so
+  // flipping persist on carries the current items in on the first edit. Off = per-day.
+  const persist = !!config.persist;
   // #52 — project rows are completable: {text, done}. Lazy-convert legacy string[].
-  const rawItems = data.items || Array(count).fill("");
+  const rawItems = (persist ? (config.items ?? data.items) : data.items) || Array(count).fill("");
   const items = rawItems.map(it => typeof it === "string" ? { text: it, done: false } : (it || { text:"", done:false }));
-  const [localTitle, setLocalTitle] = useState(data.title||config.title||"Project");
+  const writeItems = next => persist
+    ? (onConfigPatch && onConfigPatch({ items: next }))
+    : onChange({ ...data, items: next });
+  const [localTitle, setLocalTitle] = useState((persist ? config.title : (data.title||config.title)) || "Project");
+  const writeTitle = v => { setLocalTitle(v); persist ? (onConfigPatch && onConfigPatch({ title: v })) : onChange({ ...data, title: v }); };
   const isOpen = data._open !== undefined ? data._open : (config.defaultOpen !== false);
   const hasContent = items.some(x=>x.text?.trim());
   const filledCount = items.filter(x=>x.text?.trim()).length;
@@ -149,7 +158,7 @@ export function TileProject({ config, data={}, onChange, editMode, onRemove, onC
       ? React.createElement("input", {
           value:localTitle,
           onClick:e=>e.stopPropagation(),
-          onChange:e=>{ setLocalTitle(e.target.value); onChange({...data,title:e.target.value}); },
+          onChange:e=>writeTitle(e.target.value),
           style:{background:"transparent",border:"none",borderBottom:"1px solid var(--border-dim)",
             color:"var(--text-dim)",fontFamily:"var(--font-display)",fontSize:"9px",letterSpacing:"2px",
             textTransform:"uppercase",flex:1,padding:"2px 0"}
@@ -177,7 +186,7 @@ export function TileProject({ config, data={}, onChange, editMode, onRemove, onC
     isOpen && React.createElement("div", { style:{marginTop:"10px",paddingTop:"10px",borderTop:"1px solid var(--border-dim)"} },
       React.createElement("input", {
         value: localTitle,
-        onChange: e => { setLocalTitle(e.target.value); onChange({...data, title:e.target.value}); },
+        onChange: e => writeTitle(e.target.value),
         placeholder: "Project name...",
         style:{background:"transparent",border:"none",borderBottom:"1px solid var(--border)",
           color:"var(--accent)",fontFamily:"var(--font-display)",fontSize:"11px",letterSpacing:"1.5px",
@@ -189,10 +198,10 @@ export function TileProject({ config, data={}, onChange, editMode, onRemove, onC
           React.createElement("div", { key:i, style:{display:"flex",alignItems:"flex-start",gap:"6px"} },
             React.createElement(LinkedCheck, { manual:!!it.done, accent:"var(--accent)",
               auto: isLinkAutoOn(tileId, `items[${i}].done`, links, allDayData||{}, tilesById),
-              onChange: v => { const n=[...items]; n[i]={...it,done:v}; onChange({...data,items:n}); },
+              onChange: v => { const n=[...items]; n[i]={...it,done:v}; writeItems(n); },
               style:{marginTop:"4px"} }),
             React.createElement(AutoTA, { value:it.text||"", placeholder:"Task...",
-              onChange: v => { const n=[...items]; n[i]={...it,text:v}; onChange({...data,items:n}); },
+              onChange: v => { const n=[...items]; n[i]={...it,text:v}; writeItems(n); },
               style: it.done ? {textDecoration:"line-through",color:"var(--text-muted)"} : {} })
           )
         )

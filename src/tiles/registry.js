@@ -31,7 +31,9 @@ export const TILES = {
   priorities: { family: "capture", label: "Priorities",     icon: "①", component: TilePriorities,
                 defaultConfig: { title: "My Top Priorities", count: 3 } },
   project:    { family: "capture", label: "Project Block",  icon: "▤", component: TileProject,
-                defaultConfig: { title: "Project", count: 4 } },
+                // #83 — persist:true moves items+title into config (one shared list
+                // across every day, like the AI Ideas tile); default off = per-day.
+                defaultConfig: { title: "Project", count: 4, persist: false } },
   freelist:   { family: "capture", label: "Free List",      icon: "≡", component: TileFreeList,
                 defaultConfig: { title: "List", count: 5, placeholder: "..." } },
   twoprompt:  { family: "capture", label: "Two Prompts",    icon: "◫", component: TileTwoPrompt,

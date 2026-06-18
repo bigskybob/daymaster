@@ -211,6 +211,19 @@ export function ConfigModal({ tile, tiles, onSave, onClose }) {
             )
           );
         }
+        // #83 — project persist toggle: keep items across days (shared list, like AI Ideas).
+        if (k === "persist" && tile.type === "project") {
+          return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
+            React.createElement("label", { style:{display:"flex",alignItems:"center",gap:"8px",cursor:"pointer"} },
+              React.createElement("input", { type:"checkbox", checked:!!v,
+                onChange: e => setCfg({...cfg, [k]: e.target.checked}),
+                style:{accentColor:"var(--accent)",width:"14px",height:"14px",cursor:"pointer"} }),
+              React.createElement("span", { style:{fontSize:"11px",color:"var(--text-dim)"} }, "Persist items across days")),
+            React.createElement("div", { style:{fontSize:"9px",color:"var(--text-faint)",marginTop:"3px",marginLeft:"22px"} },
+              "One shared list that carries forward every day (like the AI Ideas tile), instead of a fresh list each day."));
+        }
+        // #83 — when persisted, project items live in config; they're managed in the tile, not here.
+        if (k === "items" && tile.type === "project") return null;
         if (typeof v === "string") return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
           label, React.createElement("input", { value:v, onChange:e=>setCfg({...cfg,[k]:e.target.value}), style:inputStyle }));
         if (typeof v === "number") return React.createElement("div", { key:k, style:{marginBottom:"10px"} },
