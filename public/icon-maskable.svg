@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- #82 — full-bleed, opaque source for the maskable manifest icon + iOS
+       apple-touch-icon. All content sits inside the 80% maskable safe zone
+       (centre circle r≈205) so platform circle/squircle masks never clip it. -->
+  <rect width="512" height="512" fill="#0f0f0f"/>
+  <circle cx="256" cy="256" r="152" fill="none" stroke="#c8a96e" stroke-width="6" opacity="0.3"/>
+  <text x="256" y="352" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-size="300" font-weight="bold" fill="#c8a96e">D</text>
+</svg>

@@ -22,6 +22,7 @@ import { ConfigModal } from "./ui/ConfigModal.jsx";
 import { HistoryView } from "./ui/HistoryView.jsx";
 import { LinksModal } from "./ui/LinksModal.jsx";
 import { TabsModal } from "./ui/TabsModal.jsx";
+import { InstallHint } from "./ui/InstallHint.jsx";
 import { ALL_TAB, visibleColumnsForTab, tabExists, withoutTab } from "./lib/tabs.js";
 import { workerConfigured } from "./lib/notion.js";
 import { APP_VERSION, BUILD_DATE } from "./version.js";
@@ -1125,6 +1126,9 @@ function App() {
     React.createElement("div", {
       style:{textAlign:"center",padding:"20px 12px 30px",color:"var(--text-xfaint)",fontSize:"9px",letterSpacing:"1px"}
     }, `Daymaster v${APP_VERSION}${BUILD_DATE ? " · " + BUILD_DATE : ""}`),
+
+    // #82 — PWA install nudge (iOS Share instructions / Chromium Install button).
+    React.createElement(InstallHint),
 
     // CONFIG MODAL
     ideaCapture && React.createElement(IdeaCaptureModal, { onClose: () => setIdeaCapture(false) }),
