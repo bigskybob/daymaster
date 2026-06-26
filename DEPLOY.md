@@ -20,7 +20,7 @@ src/
     helpers.js           DAYS/MONTHS/todayKey/fmtDate/uid
     rules.js             TILE_EVENTS + evaluateRule + check-in time helpers
     store.js             buildDefaultLayout/emptyStore/migrateLayout
-    sync.js              mergeStores (conflict-safe Drive merge)  ← unit-tested
+    sync.js              mergeStores/mergeDay (tile-level conflict-safe Drive merge)  ← unit-tested
     drive.js             Google Drive persistence (revision check + merge)
     calendar.js          read-only Google Calendar
     token.js             Google OAuth access-token holder

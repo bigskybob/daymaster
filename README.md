@@ -15,7 +15,10 @@ client-side MSAL for Microsoft To Do. Each user's data lives in their own Drive 
 - **Auto-rule engine** — a tile's checkbox can auto-complete from another tile's
   state (e.g. check-in "Planks or Pushups" ticks from the tracker).
 - **Drive sync** — every change saves locally, then to Drive; concurrent edits from
-  multiple devices are merged per-day (no last-write-wins data loss).
+  multiple devices are merged **per tile within each day**, so a sparse copy on one
+  device (e.g. a fresh session that's only auto-loaded a quote) can't blank a fuller
+  day saved from another. The first post-auth load also gates the first Drive write,
+  so an empty local cache never overwrites good remote data.
 - **Integrations** — Notion idea capture (`💡 Idea` → inbox page) and dynamic Notion
   quick-links via the Worker; **Microsoft To Do** (read filtered tasks + quick-capture)
   via client-side MSAL + Graph; inline Google Calendar.
