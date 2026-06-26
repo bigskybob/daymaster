@@ -72,6 +72,11 @@ function App() {
   // returning Drive user whose local cache is empty.
   const [onboarding, setOnboarding] = useState(false);
   const firstRunRef = useRef(false);
+  // #53 — gate the debounced Drive save until the first post-auth load (syncDown)
+  // has merged in the remote. Without it, a fresh/cleared local cache writes an
+  // empty store that can overwrite good Drive data in the window between auth
+  // completing and that first load finishing (cross-device "went blank" bug).
+  const syncedDownRef = useRef(false);
   // #61 — edit-mode "add tile" feedback: the just-added tile lands at the bottom of
   // a column (far down on stacked mobile) with no visible cue. Track it to scroll +
   // highlight + toast. And a one-time post-onboarding banner orienting to layout edit.
@@ -145,6 +150,12 @@ function App() {
       }
     } catch(e) {
       console.warn("Drive load failed, using local", e);
+    } finally {
+      // Remote has now been loaded+merged (or its load failed and we fall back to
+      // local) — either way it's safe to let the debounced Drive save run. This runs
+      // in the same synchronous turn as the applyStore() calls (before React flushes
+      // the resulting save effect), so that effect already sees the gate open.
+      syncedDownRef.current = true;
     }
     // #61 — true first run: no Drive store AND the profile was pristine at mount.
     // Route to the onboarding interview instead of silently seeding the default
@@ -254,8 +265,10 @@ function App() {
     if (!store) return;
     // Always save to localStorage immediately
     localStorage.setItem(LOCAL_KEY, JSON.stringify(store));
-    // Debounce Drive save by 2s
-    if (!isAuthed) return;
+    // Debounce Drive save by 2s — but only once the first post-auth load has merged
+    // in the remote (#53). Saving before that can push an empty/stale local store
+    // over good Drive data. localStorage above is unconditional, so nothing is lost.
+    if (!isAuthed || !syncedDownRef.current) return;
     setSyncStatus("saving");
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {

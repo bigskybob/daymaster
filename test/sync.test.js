@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mergeStores, touchDay } from "../src/lib/sync.js";
+import { mergeStores, mergeDay, touchDay } from "../src/lib/sync.js";
 
 const base = (days, savedAt, layouts = { default: { columns: [] } }, activeLayout = "default") =>
   ({ version: 6, activeLayout, layouts, days, __savedAt: savedAt });
@@ -55,6 +55,76 @@ describe("mergeStores", () => {
     const merged = mergeStores(phone, ipad);
     expect(merged.days["2026-6-1"].mood.feeling).toBe("🙂");
     expect(merged.days["2026-6-2"].mood.feeling).toBe("😴");
+  });
+
+  // ── #data-loss — a contested day must union its TILES, not clobber the whole day ──
+  // The exact production failure: a fresh second machine opens Daymaster, the Quote
+  // tile auto-writes on an empty day (stamping a *newer* __mtime), and the post-auth
+  // sync merges it against the rich copy already on Drive. Day-level last-write-wins
+  // wiped donts/priorities/check-ins/pushups. Tile-level union must keep them all.
+  it("a near-empty NEWER local day does not wipe a rich OLDER remote day", () => {
+    const local = base({
+      "2026-6-26": { sxzhbum: { quote: "auto-fetched" }, __mtime: 2000 }, // fresh machine: quote only
+    }, 2000);
+    const remote = base({
+      "2026-6-26": {
+        donts: { text: "no drinking" },
+        priorities: { priorities: [{ text: "Montana packing", done: false }] },
+        checkin1: { items: [{ text: "build vantage", done: false }] },
+        pushups: { pushups: { 5: true, 10: true } },
+        sxzhbum: { quote: "the real one" },
+        __mtime: 1000, // OLDER — but it holds the real day's work
+      },
+    }, 1000);
+    const day = mergeStores(local, remote).days["2026-6-26"];
+    // Every rich tile from the older remote survives…
+    expect(day.donts.text).toBe("no drinking");
+    expect(day.priorities.priorities[0].text).toBe("Montana packing");
+    expect(day.checkin1.items[0].text).toBe("build vantage");
+    expect(day.pushups.pushups[10]).toBe(true);
+    // …and the contested tile (present on both) resolves to the newer __mtime.
+    expect(day.sxzhbum.quote).toBe("auto-fetched");
+    expect(day.__mtime).toBe(2000);
+  });
+
+  it("is symmetric: rich older remote survives regardless of argument order", () => {
+    const rich = base({ d: { a: { v: 1 }, b: { v: 2 }, __mtime: 100 } }, 100);
+    const sparse = base({ d: { c: { v: 3 }, __mtime: 500 } }, 500);
+    for (const day of [mergeStores(rich, sparse).days.d, mergeStores(sparse, rich).days.d]) {
+      expect(day.a.v).toBe(1);
+      expect(day.b.v).toBe(2);
+      expect(day.c.v).toBe(3);
+    }
+  });
+
+  it("contested tile honors the newer __mtime, and a tie resolves to local", () => {
+    const local = base({ d: { t: { note: "L" }, __mtime: 50 } }, 1);
+    const remoteNewer = base({ d: { t: { note: "R" }, __mtime: 60 } }, 1);
+    expect(mergeStores(local, remoteNewer).days.d.t.note).toBe("R");
+    const remoteTie = base({ d: { t: { note: "R" }, __mtime: 50 } }, 1);
+    expect(mergeStores(local, remoteTie).days.d.t.note).toBe("L");
+  });
+
+  it("does not resurrect a cleared tile value (clear writes empty, not delete)", () => {
+    // Device cleared `donts` (wrote {text:""}) AFTER the remote still held text.
+    const cleared = base({ d: { donts: { text: "" }, __mtime: 200 } }, 200);
+    const remote  = base({ d: { donts: { text: "old stuff" }, __mtime: 100 } }, 100);
+    expect(mergeStores(cleared, remote).days.d.donts.text).toBe("");
+  });
+});
+
+describe("mergeDay", () => {
+  it("unions tile keys from both sides", () => {
+    const merged = mergeDay({ a: 1, __mtime: 2 }, { b: 2, __mtime: 1 });
+    expect(merged).toEqual({ a: 1, b: 2, __mtime: 2 });
+  });
+  it("newer side wins a contested tile; __mtime is the max", () => {
+    expect(mergeDay({ t: "new", __mtime: 9 }, { t: "old", __mtime: 1 }))
+      .toEqual({ t: "new", __mtime: 9 });
+  });
+  it("missing __mtime is treated as 0", () => {
+    const merged = mergeDay({ a: 1 }, { b: 2, __mtime: 5 });
+    expect(merged).toEqual({ a: 1, b: 2, __mtime: 5 });
   });
 });
 
