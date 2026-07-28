@@ -23,7 +23,8 @@ import { HistoryView } from "./ui/HistoryView.jsx";
 import { LinksModal } from "./ui/LinksModal.jsx";
 import { TabsModal } from "./ui/TabsModal.jsx";
 import { InstallHint } from "./ui/InstallHint.jsx";
-import { ALL_TAB, visibleColumnsForTab, tabExists, withoutTab } from "./lib/tabs.js";
+import { ALL_TAB, visibleColumnsForTab, tabExists, withoutTab,
+         activeTimeTab, hasTimeWindows, minutesNow, suggestTimeTabs } from "./lib/tabs.js";
 import { workerConfigured } from "./lib/notion.js";
 import { APP_VERSION, BUILD_DATE } from "./version.js";
 
@@ -46,7 +47,11 @@ function App() {
   const [configTile, setConfigTile] = useState(null);
   const [showLinks, setShowLinks] = useState(false); // field-links manager (Phase C)
   const [showTabs, setShowTabs]   = useState(false); // #84 — header-tabs manager
-  const [activeTab, setActiveTab] = useState(ALL_TAB); // #84 — selected header tab (view mode)
+  // #84/#87 — header tabs. `activeTab` is the *manual* selection only: null means
+  // "follow the clock", so a time-windowed tab (#87) can drive the view until the
+  // user taps something. `tabNow` is the current minute, re-read on a ticker.
+  const [activeTab, setActiveTab] = useState(null);
+  const [tabNow, setTabNow]       = useState(() => minutesNow());
   const [dragState, setDragState] = useState(null);
   const [theme, setTheme]         = useState(() => localStorage.getItem(THEME_KEY) || "dark");
   const [font, setFont]           = useState(() => localStorage.getItem(FONT_KEY) || "mono"); // #60
@@ -324,7 +329,14 @@ function App() {
   // tile (withoutTab) and resets the view to All if it was the one showing.
   const addTab    = useCallback(name => mutateLayout(l => ({ ...l, tabs: [...(l.tabs||[]), { id: "tab-"+uid().slice(0,6), name }] })), []);
   const renameTab = useCallback((id, name) => mutateLayout(l => ({ ...l, tabs: (l.tabs||[]).map(t => t.id===id ? { ...t, name } : t) })), []);
-  const removeTab = useCallback(id => { mutateLayout(l => withoutTab(l, id)); setActiveTab(a => a===id ? ALL_TAB : a); }, []);
+  const removeTab = useCallback(id => { mutateLayout(l => withoutTab(l, id)); setActiveTab(a => a===id ? null : a); }, []);
+  // #87 — a tab's optional time window ({start,end} as "HH:MM"); "" on either
+  // clears it back to a manual-only tab.
+  const setTabWindow = useCallback((id, patch) =>
+    mutateLayout(l => ({ ...l, tabs: (l.tabs||[]).map(t => t.id===id ? { ...t, ...patch } : t) })), []);
+  // #87 — seed Morning/Midday/Evening and sort every tile into one, as a starting
+  // point to tune. No-ops on a layout that already has tabs.
+  const suggestTabs = useCallback(() => mutateLayout(l => suggestTimeTabs(l)), []);
   const assignTileTab = useCallback((colId, tileId, tabId) =>
     mutateLayout(l => ({ ...l, columns: l.columns.map(c => c.id===colId ? { ...c, tiles: c.tiles.map(t => t.id===tileId ? { ...t, config: { ...t.config, tab: tabId } } : t) } : c) })), []);
 
@@ -471,6 +483,35 @@ function App() {
     return map;
   }, [layout]);
 
+  // #87 — time-relevant tabs. A tab carrying a start/end window is auto-selected
+  // while the clock sits inside it, condensing the board to just what's relevant
+  // now. Declared here (with tilesById) so the hook count stays stable across the
+  // early returns below.
+  const timeTabbed = hasTimeWindows(layout?.tabs);
+
+  // Re-read the clock on a 30s ticker while any tab is windowed. Deliberately an
+  // interval rather than a timeout aimed at the next boundary: a phone that sleeps
+  // through a boundary never fires the timeout on time, but the next tick after
+  // wake still lands on the right window. Layouts with no windows never tick.
+  useEffect(() => {
+    if (!timeTabbed) return;
+    const id = setInterval(() => setTabNow(minutesNow()), 30000);
+    return () => clearInterval(id);
+  }, [timeTabbed]);
+
+  const autoTabId = useMemo(
+    () => activeTimeTab(layout?.tabs, tabNow)?.id || null, [layout?.tabs, tabNow]);
+
+  // Manual selection wins *until the next window boundary* — when the clock's
+  // answer changes, the override is dropped and time takes back over. That's what
+  // keeps an app left open all day from getting stuck on a stale tab.
+  const prevAutoTabRef = useRef(autoTabId);
+  useEffect(() => {
+    if (prevAutoTabRef.current === autoTabId) return;
+    prevAutoTabRef.current = autoTabId;
+    setActiveTab(null);
+  }, [autoTabId]);
+
   // #61 — Beta Onboarding (Phase 2). Overlays the guided interview for a true first
   // run, when forced via ?onboarding=1, or from the in-app "Re-run setup" entry.
   // Commit-on-finish: only Finish seeds + persists (applyStore → save effect). Skip
@@ -500,7 +541,12 @@ function App() {
   // active tab was deleted or belongs to a different layout preset. Edit mode always
   // shows every tile (tabs are assigned per tile via the ⊞ Tabs modal).
   const layoutTabs   = layout.tabs || [];
-  const effectiveTab = tabExists(layout, activeTab) ? activeTab : ALL_TAB;
+  // #87 — a manual tap wins, but only while it still points at a tab on THIS
+  // layout; a tab that was deleted or belongs to another preset hands control
+  // back to the clock rather than pinning the view to a dead id.
+  const manualTab    = activeTab !== null && (activeTab === ALL_TAB || tabExists(layout, activeTab)) ? activeTab : null;
+  const desiredTab   = manualTab !== null ? manualTab : (autoTabId || ALL_TAB);
+  const effectiveTab = tabExists(layout, desiredTab) ? desiredTab : ALL_TAB;
   const renderColumns = !editMode ? visibleColumnsForTab(layout.columns, effectiveTab) : layout.columns;
 
   // #72 — pull `title` out of extra so it lands on the button as a real tooltip
@@ -913,11 +959,22 @@ function App() {
       },
         [{ id:ALL_TAB, name:"All" }, ...layoutTabs].map(tab => {
           const on = effectiveTab === tab.id;
+          // #87 — mark tabs the clock can select, and show the 🕐 filled-in on the
+          // one it's currently driving (i.e. no manual override is in play).
+          const timed   = tab.id === autoTabId || (tab.start && tab.end);
+          const driving = on && manualTab === null && tab.id === autoTabId;
           return React.createElement("button", { key:tab.id, onClick:()=>setActiveTab(tab.id),
+            title: timed && tab.start && tab.end
+              ? `${tab.name} · ${tab.start}–${tab.end}${driving ? " (showing now)" : ""}`
+              : tab.name,
             style:{flexShrink:0,background:on?"var(--accent)":"var(--bg-hover)",
               color:on?"var(--bg)":"var(--text-dim)",border:`1px solid ${on?"var(--accent)":"var(--border)"}`,
               fontFamily:"var(--font-display)",fontSize:"10px",letterSpacing:"1px",textTransform:"uppercase",
-              padding:"5px 12px",borderRadius:"5px",cursor:"pointer",whiteSpace:"nowrap"} }, tab.name);
+              padding:"5px 12px",borderRadius:"5px",cursor:"pointer",whiteSpace:"nowrap",
+              display:"flex",alignItems:"center",gap:"5px"} },
+            timed && React.createElement("span", {
+              style:{fontSize:"9px",opacity:driving?1:0.45,letterSpacing:0} }, "🕐"),
+            tab.name);
         })
       ),
       // #61 — one-time post-onboarding orientation: point new users at layout editing.
@@ -1165,6 +1222,7 @@ function App() {
     }),
 
     // #84 — header-tabs manager: create/rename/delete tabs + assign tiles to them.
+    // #87 adds the per-tab time window (onSetWindow).
     showTabs && React.createElement(TabsModal, {
       tiles: layout.columns.flatMap(c => c.tiles.map(t => ({ ...t, _colId: c.id }))),
       tabs: layout.tabs || [],
@@ -1172,6 +1230,8 @@ function App() {
       onRename: renameTab,
       onRemove: removeTab,
       onAssign: assignTileTab,
+      onSetWindow: setTabWindow,
+      onSuggest: suggestTabs,
       onClose: () => setShowTabs(false),
     }),
 
