@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   ALL_TAB, visibleColumnsForTab, tabExists, withoutTab,
   parseTime, minutesNow, tabWindowActive, activeTimeTab, hasTimeWindows,
-  suggestTimeTabs, SUGGESTED_TABS,
+  suggestTimeTabs, SUGGESTED_TABS, tileTabs, toggleTileTab,
 } from "../src/lib/tabs.js";
 
 const at = (h, m = 0) => h * 60 + m;
@@ -198,5 +198,83 @@ describe("suggestTimeTabs (#87)", () => {
     expect(l.columns[0].tiles[0].config.tab).toBeUndefined();
     expect(suggestTimeTabs(null)).toBeNull();
     expect(suggestTimeTabs({ tabs: [] }).columns).toEqual([]);
+  });
+});
+
+// ─── #91 multi-tab membership ─────────────────────────────────────────────────
+
+describe("tileTabs (#91)", () => {
+  it("reads the multi-tab array when present", () => {
+    expect(tileTabs({ config: { tabs: ["a", "b"] } })).toEqual(["a", "b"]);
+  });
+  it("falls back to the pre-#91 single `tab` string", () => {
+    expect(tileTabs({ config: { tab: "work" } })).toEqual(["work"]);
+  });
+  it("prefers the array even when a stale legacy `tab` disagrees", () => {
+    expect(tileTabs({ config: { tabs: ["a", "b"], tab: "a" } })).toEqual(["a", "b"]);
+    expect(tileTabs({ config: { tabs: [], tab: "a" } })).toEqual([]);   // deliberately cleared
+  });
+  it("is empty for unassigned tiles and junk", () => {
+    expect(tileTabs({ config: {} })).toEqual([]);
+    expect(tileTabs({ config: { tab: "" } })).toEqual([]);
+    expect(tileTabs({})).toEqual([]);
+    expect(tileTabs(null)).toEqual([]);
+  });
+});
+
+describe("toggleTileTab (#91)", () => {
+  it("adds a tab without disturbing the others", () => {
+    expect(toggleTileTab({ tabs: ["a"] }, "b").tabs).toEqual(["a", "b"]);
+  });
+  it("removes a tab it already has", () => {
+    expect(toggleTileTab({ tabs: ["a", "b"] }, "a").tabs).toEqual(["b"]);
+  });
+  it("upgrades a legacy single-tab tile on first toggle", () => {
+    expect(toggleTileTab({ tab: "a" }, "b").tabs).toEqual(["a", "b"]);
+  });
+  it("mirrors the first id onto legacy `tab` so old bundles degrade gracefully", () => {
+    expect(toggleTileTab({ tabs: ["a"] }, "b").tab).toBe("a");
+    expect(toggleTileTab({ tabs: ["a"] }, "a").tab).toBe("");   // emptied
+  });
+  it("preserves unrelated config and does not mutate the input", () => {
+    const cfg = { title: "T", tabs: ["a"] };
+    const out = toggleTileTab(cfg, "b");
+    expect(out.title).toBe("T");
+    expect(cfg.tabs).toEqual(["a"]);
+  });
+});
+
+describe("visibleColumnsForTab with multi-tab tiles (#91)", () => {
+  const multi = () => [{ id: "c1", tiles: [
+    { id: "both", type: "notes", config: { tabs: ["morning", "midday"] } },
+    { id: "am",   type: "notes", config: { tabs: ["morning"] } },
+    { id: "pm",   type: "notes", config: { tabs: ["evening"] } },
+    { id: "old",  type: "notes", config: { tab: "midday" } },        // pre-#91
+  ] }];
+  it("shows a multi-tab tile under every tab it belongs to", () => {
+    const ids = t => visibleColumnsForTab(multi(), t).flatMap(c => c.tiles.map(x => x.id));
+    expect(ids("morning")).toEqual(["both", "am"]);
+    expect(ids("midday")).toEqual(["both", "old"]);
+    expect(ids("evening")).toEqual(["pm"]);
+  });
+});
+
+describe("withoutTab with multi-tab tiles (#91)", () => {
+  it("drops only the deleted tab, leaving the tile's other memberships", () => {
+    const layout = {
+      tabs: [{ id: "morning" }, { id: "midday" }],
+      columns: [{ id: "c1", tiles: [{ id: "both", type: "notes", config: { tabs: ["morning", "midday"], tab: "morning" } }] }],
+    };
+    const tile = withoutTab(layout, "morning").columns[0].tiles[0];
+    expect(tile.config.tabs).toEqual(["midday"]);
+    expect(tile.config.tab).toBe("midday");        // legacy mirror follows
+  });
+});
+
+describe("suggestTimeTabs writes multi-tab membership (#91)", () => {
+  it("seeds each tile with an array (plus the legacy mirror)", () => {
+    const out = suggestTimeTabs({ columns: [{ id: "c1", tiles: [{ id: "a", type: "guidedam", config: {} }] }] });
+    expect(out.columns[0].tiles[0].config.tabs).toEqual(["tab-morning"]);
+    expect(out.columns[0].tiles[0].config.tab).toBe("tab-morning");
   });
 });

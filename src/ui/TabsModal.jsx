@@ -6,7 +6,7 @@
 // auto-selects itself while the clock is inside it.
 import React, { useState } from "react";
 import { TILE_TYPES } from "../tiles/registry.js";
-import { parseTime } from "../lib/tabs.js";
+import { parseTime, tileTabs } from "../lib/tabs.js";
 
 const tileTitle = t => t.config?.title || t.config?.titleA || TILE_TYPES[t.type]?.label || t.type;
 
@@ -95,19 +95,34 @@ export function TabsModal({ tiles, tabs, onAdd, onRename, onRemove, onAssign, on
 
       // ── per-tile assignment ──
       sectionLbl("Assign modules"),
+      React.createElement("div", { style: { fontSize: "9px", color: "var(--text-faint)", lineHeight: 1.5, marginBottom: "8px" } },
+        "Tap a tab to put a module in it — a module can live in several at once (morning and midday, but not evening). None selected = shows only under “All”."),
       (tiles || []).length === 0
         ? React.createElement("div", { style: { fontSize: "11px", color: "var(--text-faint)", fontStyle: "italic" } }, "No tiles to assign.")
-        : React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } },
-            (tiles || []).map(t => React.createElement("div", { key: t.id, style: { display: "flex", alignItems: "center", gap: "8px" } },
-              React.createElement("div", { style: { flex: 1, fontSize: "11px", color: "var(--text-dim)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, tileTitle(t)),
-              React.createElement("select", {
-                value: t.config?.tab || "",
-                onChange: e => onAssign(t._colId, t.id, e.target.value),
-                disabled: list.length === 0,
-                style: { ...inputStyle, flex: "0 0 46%", cursor: list.length === 0 ? "default" : "pointer", opacity: list.length === 0 ? 0.5 : 1 },
-              },
-                React.createElement("option", { value: "" }, "— All (unassigned) —"),
-                list.map(tab => React.createElement("option", { key: tab.id, value: tab.id }, tab.name)))))),
+        : list.length === 0
+        ? React.createElement("div", { style: { fontSize: "11px", color: "var(--text-faint)", fontStyle: "italic" } }, "Add a tab first.")
+        // #91 — toggle chips rather than a <select>: a dropdown can't show multi-tab
+        // membership at a glance, and multi-selects are miserable on a phone.
+        : React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "9px" } },
+            (tiles || []).map(t => {
+              const on = tileTabs(t);
+              return React.createElement("div", { key: t.id, style: { display: "flex", flexDirection: "column", gap: "4px" } },
+                React.createElement("div", { style: { fontSize: "11px", color: "var(--text-dim)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } },
+                  tileTitle(t),
+                  on.length === 0 && React.createElement("span", { style: { color: "var(--text-faint)", fontStyle: "italic" } }, "  · All only")),
+                React.createElement("div", { style: { display: "flex", flexWrap: "wrap", gap: "5px" } },
+                  list.map(tab => {
+                    const sel = on.includes(tab.id);
+                    return React.createElement("button", {
+                      key: tab.id, onClick: () => onAssign(t._colId, t.id, tab.id),
+                      "aria-pressed": sel, title: `${sel ? "Remove from" : "Add to"} ${tab.name}`,
+                      style: { ...tinyBtn, fontSize: "9px", padding: "3px 8px",
+                        background: sel ? "var(--accent-dim)" : "var(--bg-card)",
+                        borderColor: sel ? "var(--accent)" : "var(--border)",
+                        color: sel ? "var(--accent)" : "var(--text-faint)" },
+                    }, tab.name);
+                  })));
+            })),
 
       React.createElement("div", { style: { display: "flex", marginTop: "16px" } },
         React.createElement("button", { onClick: onClose,

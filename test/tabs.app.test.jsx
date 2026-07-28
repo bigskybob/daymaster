@@ -167,3 +167,45 @@ describe("App — time-relevant tabs (#87) integration", () => {
     }
   });
 });
+
+// #91 — a tile assigned to several tabs must actually render under each of them.
+describe("App — multi-tab membership (#91) integration", () => {
+  beforeEach(() => {
+    global.fetch = () => new Promise(() => {});
+    window.fetch = global.fetch;
+    const mem = new Map();
+    const ls = { getItem: k => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: k => mem.delete(k), clear: () => mem.clear() };
+    globalThis.localStorage = ls; window.localStorage = ls;
+  });
+
+  it("renders a tile under every tab it belongs to, and hides it elsewhere", async () => {
+    const store = emptyStore();
+    store.layouts.default = {
+      name: "Test",
+      tabs: [{ id: "am", name: "Morning" }, { id: "pm", name: "Evening" }],
+      columns: [{ id: "col-1", width: 1, tiles: [
+        { id: "t1", type: "textprompt", config: { title: "ALLDAY", tabs: ["am", "pm"] } },
+        { id: "t2", type: "textprompt", config: { title: "AMONLY", tabs: ["am"] } },
+        { id: "t3", type: "textprompt", config: { title: "LEGACY", tab: "pm" } },  // pre-#91 shape
+      ] }],
+    };
+    store.activeLayout = "default";
+    localStorage.setItem("daymaster-v2-local", JSON.stringify(store));
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    await act(async () => { createRoot(container).render(React.createElement(App)); });
+    const tabBtn = name => [...container.querySelectorAll("button")].find(b => b.textContent.includes(name));
+
+    await act(async () => { tabBtn("Morning").click(); });
+    expect(container.innerHTML).toContain("ALLDAY");
+    expect(container.innerHTML).toContain("AMONLY");
+    expect(container.innerHTML).not.toContain("LEGACY");
+
+    // the shared tile follows into the second tab; the morning-only one does not
+    await act(async () => { tabBtn("Evening").click(); });
+    expect(container.innerHTML).toContain("ALLDAY");
+    expect(container.innerHTML).not.toContain("AMONLY");
+    expect(container.innerHTML).toContain("LEGACY");   // legacy single-tab still resolves
+  });
+});

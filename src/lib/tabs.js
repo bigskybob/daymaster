@@ -6,6 +6,27 @@
 
 export const ALL_TAB = "all";
 
+// #91 — a tile can belong to MANY tabs (morning + midday but not evening, say).
+// Membership lives in `config.tabs` (array of tab ids). Pre-#91 tiles carry a
+// single `config.tab` string, which still reads correctly here, so old layouts
+// and any device still running an older bundle keep working.
+export function tileTabs(tile) {
+  const many = tile?.config?.tabs;
+  if (Array.isArray(many)) return many.filter(Boolean);
+  const one = tile?.config?.tab;
+  return one ? [one] : [];
+}
+
+// Toggle one tab on/off for a tile's config, returning a NEW config. Writes the
+// array as the source of truth and mirrors the first id back onto the legacy
+// `tab` key, so a device still on a pre-#91 bundle degrades to "shows under its
+// first tab" rather than "vanishes from every tab".
+export function toggleTileTab(config = {}, tabId) {
+  const cur = tileTabs({ config });
+  const next = cur.includes(tabId) ? cur.filter(id => id !== tabId) : [...cur, tabId];
+  return { ...config, tabs: next, tab: next[0] || "" };
+}
+
 // Columns to render for a given tab. For "All" (or an empty/unknown id) every column
 // is returned untouched (same reference, so React sees no change). For a named tab,
 // each column keeps only the tiles assigned to it, and columns that end up empty are
@@ -13,7 +34,7 @@ export const ALL_TAB = "all";
 export function visibleColumnsForTab(columns = [], tabId = ALL_TAB) {
   if (!tabId || tabId === ALL_TAB) return columns;
   return columns
-    .map(c => ({ ...c, tiles: (c.tiles || []).filter(t => (t.config?.tab || "") === tabId) }))
+    .map(c => ({ ...c, tiles: (c.tiles || []).filter(t => tileTabs(t).includes(tabId)) }))
     .filter(c => (c.tiles || []).length > 0);
 }
 
@@ -106,10 +127,10 @@ export function suggestTimeTabs(layout) {
     tabs: SUGGESTED_TABS.map(t => ({ ...t })),
     columns: (layout.columns || []).map(c => ({
       ...c,
-      tiles: (c.tiles || []).map(t => ({
-        ...t,
-        config: { ...t.config, tab: SUGGESTED_BUCKET[t.type] || "tab-midday" },
-      })),
+      tiles: (c.tiles || []).map(t => {
+        const bucket = SUGGESTED_BUCKET[t.type] || "tab-midday";
+        return { ...t, config: { ...t.config, tabs: [bucket], tab: bucket } };
+      }),
     })),
   };
 }
@@ -121,8 +142,13 @@ export function withoutTab(layout, tabId) {
   const tabs = (layout.tabs || []).filter(t => t.id !== tabId);
   const columns = (layout.columns || []).map(c => ({
     ...c,
-    tiles: (c.tiles || []).map(t =>
-      t.config?.tab === tabId ? { ...t, config: { ...t.config, tab: "" } } : t),
+    // #91 — drop the id from the tile's membership list (and the legacy mirror),
+    // leaving any OTHER tabs it belongs to intact.
+    tiles: (c.tiles || []).map(t => {
+      if (!tileTabs(t).includes(tabId)) return t;
+      const next = tileTabs(t).filter(id => id !== tabId);
+      return { ...t, config: { ...t.config, tabs: next, tab: next[0] || "" } };
+    }),
   }));
   return { ...layout, tabs, columns };
 }

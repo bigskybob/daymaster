@@ -24,7 +24,7 @@ import { LinksModal } from "./ui/LinksModal.jsx";
 import { TabsModal } from "./ui/TabsModal.jsx";
 import { InstallHint } from "./ui/InstallHint.jsx";
 import { ALL_TAB, visibleColumnsForTab, tabExists, withoutTab,
-         activeTimeTab, hasTimeWindows, minutesNow, suggestTimeTabs } from "./lib/tabs.js";
+         activeTimeTab, hasTimeWindows, minutesNow, suggestTimeTabs, toggleTileTab } from "./lib/tabs.js";
 import { workerConfigured } from "./lib/notion.js";
 import { APP_VERSION, BUILD_DATE } from "./version.js";
 
@@ -337,8 +337,10 @@ function App() {
   // #87 — seed Morning/Midday/Evening and sort every tile into one, as a starting
   // point to tune. No-ops on a layout that already has tabs.
   const suggestTabs = useCallback(() => mutateLayout(l => suggestTimeTabs(l)), []);
+  // #91 — a tile can sit in several tabs at once, so this TOGGLES one membership
+  // rather than replacing the assignment.
   const assignTileTab = useCallback((colId, tileId, tabId) =>
-    mutateLayout(l => ({ ...l, columns: l.columns.map(c => c.id===colId ? { ...c, tiles: c.tiles.map(t => t.id===tileId ? { ...t, config: { ...t.config, tab: tabId } } : t) } : c) })), []);
+    mutateLayout(l => ({ ...l, columns: l.columns.map(c => c.id===colId ? { ...c, tiles: c.tiles.map(t => t.id===tileId ? { ...t, config: toggleTileTab(t.config, tabId) } : t) } : c) })), []);
 
   const moveTile = useCallback((colId, from, to) =>
     mutateLayout(l => ({ ...l, columns: l.columns.map(c => {
