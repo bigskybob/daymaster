@@ -7,3 +7,7 @@ docs/
 # Personal Daymaster store dumps / backups — never commit user data
 daymaster-data.json
 daymaster-*.json
+
+# Wrangler local secrets (NOTION_TOKEN etc.) — never commit
+.dev.vars
+.dev.vars.*
