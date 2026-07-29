@@ -54,6 +54,13 @@ Client side, `src/lib/notion.js` already has the matching call pattern
 Notion **Projects** database — `collection://cca86053-a739-4852-9dd0-740105bf458b`
 (page `394d876ed61e811f8ca1e6aa8bd282ee`). 13 projects. Schema:
 
+> **Corrected 2026-07-28 during Phase 1.** Neither id above works with the REST API.
+> `394d876e…` is the *Mission Control — Dev Command Center page* that contains the
+> database (`"is a page, not a database"`), and the `collection://` id is an MCP-layer
+> handle that returns 404. The id the Worker needs is the inline database's own block
+> id: **`626e8335-b6bd-480a-b025-8d425f08f08a`**, found via
+> `GET /v1/blocks/394d876e…/children` → `child_database`. Verified: HTTP 200, 13 rows.
+
 | Property | Type | Use in the feed |
 |---|---|---|
 | `Project` | title | Row label |
@@ -100,30 +107,33 @@ Rejected as the primary source. See §7 for where the mirror still earns its pla
 
 ## 4. The two real risks (both data, not architecture)
 
-### Risk 1 — `Progress` is stored on two different scales 🔴
+### Risk 1 — ~~`Progress` is stored on two different scales~~ 🟢 WITHDRAWN
 
-Verified live against the Projects database today:
+**Retracted 2026-07-28 during Phase 1 — this risk was a measurement artifact, and the
+"fix it upstream" recommendation below was wrong. Do not action it.**
 
-| Project | Stored `Progress` |
-|---|---|
-| Vocal Inbox | `94` |
-| Mission Control | `0.95` |
-| PRISM | `0.9` |
-| RoadFit | `0.85` |
+The original claim was that Vocal Inbox stored `94` while Mission Control stored
+`0.95`. Re-measured against the REST API the Worker actually uses
+(`POST /v1/databases/626e8335…/query`), **all 13 rows are on the 0–1 scale**:
 
-Notion's *percent* number format displays `0.95` as 95%, so both look correct in the
-Notion UI — but the raw API returns the stored number. A naive `width: ${progress}%`
-renders **Mission Control as a 1% bar next to Vocal Inbox at 94%**.
+```
+Digital Daymaster 0.6   Bullpen 0.1    Job Hunt Lab 0.5   Vocal Inbox 0.94
+RoadFit 0.85            Chronocheck 0.72   Mission Control 0.95   Vantage 0.8
+iOS Device Audit 0.4    Showdown 0.75  PRISM 0.9          PIS 0.6   DKB 0.7
+values > 1: NONE
+```
 
-This is a live data-integrity bug in the Projects database, not a Daymaster bug, and
-it will silently mislead any consumer.
+The `94` reading came from the **Notion MCP's SQL layer**, which renders
+percent-formatted numbers ×100. The database itself is internally consistent. There is
+no data-integrity bug and nothing for `/km` or Mission Control to fix.
 
-**Mitigation (do both):**
-1. Normalize defensively in the Worker: `p <= 1 ? p * 100 : p`. Ambiguous only at a
-   true 1%, which never occurs in this dataset — safe, and it makes the feed correct
-   immediately regardless of what Notion holds.
-2. Report it upward so the source gets fixed — this belongs to Mission Control, not
-   Daymaster. The `/km` pass is the natural owner.
+**What shipped anyway:** `normalizeProgress()` still maps `p > 0 && p <= 1 → p * 100`.
+It is now belt-and-braces rather than a fix for a live defect — it costs nothing, and
+it means the tile stays correct if a row is ever hand-typed as `85`. The one real
+consequence is documented in the code: a stored `1` is read as 100%, not 1%.
+
+**Lesson worth keeping:** verify data claims through the *same client the code will
+use*. The MCP and the REST API do not agree on number formatting.
 
 ### Risk 2 — `Next Step` is a paragraph, not a line 🟠
 
@@ -204,14 +214,19 @@ just unblocked.
 
 ## 7. Phasing
 
-- **Phase 0 — grant + verify (blocking, minutes).** Share the Projects database with
-  the Worker's Notion integration. Confirm with a direct query before writing code.
-  Everything else is dead in the water without this.
-- **Phase 1 — Worker route.** `GET /projects` modelled on `/links`: query, map rows
-  (incl. `page.icon.emoji`), **normalize `Progress`**, strip Priority emoji, truncate
-  `Next Step`, cache ~5 min. Extend `test/worker.test.js` — it already covers the
-  Worker, including the normalization and truncation, which are the parts that will
-  actually break.
+- **Phase 0 — grant + verify. ✅ DONE 2026-07-28.** The integration reaches the
+  Projects database: `HTTP 200`, 13 rows, icons and the `Last Worked` sort both
+  working. (The grant already existed via the parent page; the blocker turned out to
+  be the wrong database id, not a missing permission — see §2.)
+- **Phase 1 — Worker route. ✅ DONE 2026-07-28** (`235fa67`, `PROJECTS_DB_ID` fix
+  follows). `GET /projects` modelled on `/links`: query, map rows (incl.
+  `page.icon.emoji`), normalize `Progress`, strip Priority emoji, truncate
+  `Next Step`, cache ~5 min. `test/worker.test.js` extended by 22 tests (30 total in
+  that file, 186 across the suite), plus a one-off run of the real Notion payload
+  through the mapper — all 13 rows mapped, no truncation over the cap, every
+  truncation a real prefix of the source text.
+  **Not deployed.** `wrangler deploy` needs interactive Cloudflare auth; the route
+  does not exist in production until Rob runs it.
 - **Phase 2 — client + tile.** `fetchProjects()` in `src/lib/notion.js` (fail-soft,
   mirroring `fetchFavorites`). Register `mcfeed` in `src/tiles/registry.js` under
   `connect`; renderer in `src/tiles.jsx`. Ship with sensible defaults.

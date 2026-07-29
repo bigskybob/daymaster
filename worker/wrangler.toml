@@ -11,6 +11,7 @@ ALLOWED_ORIGIN = "https://bigskybob.github.io"
 INCOMING_IDEAS_PAGE_ID = "35ad876ed61e811bb77adef02e1bcf2b"
 # #50 — Daymaster Favorites database (Name + URL rows) for GET /links.
 FAVORITES_DB_ID = "c33cfb4806b74a92b47bc1b1c21f04d9"
-# #88 — Mission Control Projects database for GET /projects. Requires the NOTION_TOKEN
-# integration to be shared with this database in Notion, or the route 404s.
-PROJECTS_DB_ID = "394d876ed61e811f8ca1e6aa8bd282ee"
+# #88 — Mission Control Projects database for GET /projects. This is the inline
+# database's own id, NOT the id of the "Mission Control — Dev Command Center" page
+# that contains it (that page id returns "is a page, not a database").
+PROJECTS_DB_ID = "626e8335-b6bd-480a-b025-8d425f08f08a"
