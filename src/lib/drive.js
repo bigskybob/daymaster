@@ -152,7 +152,11 @@ export async function saveToDrive(store) {
       // block persistence entirely — losing the merge is better than losing data.
       console.warn("Drive revision check failed; saving without merge", e);
     }
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    // #102 Phase 1 — compact serialization: the whole store re-uploads on every
+    // 2s debounce, and pretty-printing roughly doubles the bytes for a file no
+    // human reads in place. (Backups from the app stay pretty — this is only the
+    // sync payload.)
+    const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
     const patched = await driveRequest(`https://www.googleapis.com/upload/drive/v3/files/${_fileId}?uploadType=media&fields=headRevisionId`, {
       method: "PATCH",
       body: blob,
@@ -166,7 +170,7 @@ export async function saveToDrive(store) {
     const meta = { name: FILENAME, parents: [folderId] };
     const form = new FormData();
     form.append("metadata", new Blob([JSON.stringify(meta)], { type: "application/json" }));
-    form.append("file", new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
+    form.append("file", new Blob([JSON.stringify(payload)], { type: "application/json" })); // #102 Phase 1 — compact
     const res = await driveRequest("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,headRevisionId", {
       method: "POST",
       body: form

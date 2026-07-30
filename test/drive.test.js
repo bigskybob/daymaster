@@ -105,4 +105,31 @@ describe("drive: duplicate data files", () => {
     expect(trashed[0].method).toBe("PATCH");
     expect(trashed[0].body).toEqual({ trashed: true }); // reversible trash, not delete
   });
+
+  it("uploads a COMPACT payload that round-trips losslessly (#102 Phase 1)", async () => {
+    let uploaded = null;
+    const j = (body) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+    global.fetch = vi.fn(async (url, opts = {}) => {
+      const u = String(url);
+      if (u.includes("mimeType%3D")) return j(FOLDER);
+      if (u.includes("daymaster-data.json")) return j({ files: [{ id: "new", modifiedTime: "2026-06-11T16:30:00Z" }] });
+      if (u.includes("upload/drive/v3/files/new")) { uploaded = opts.body; return j({ headRevisionId: "rev2" }); }
+      if (u.includes("files/new?fields=headRevisionId")) return j({ headRevisionId: "rev-new" });
+      if (u.includes("files/new?alt=media")) return j(NEW_FILE);
+      return new Response("unmatched: " + u, { status: 500 });
+    });
+
+    await loadFromDrive();
+    const store = { days: { "2026-6-11": { note: "hello", __mtime: 5 } }, layouts: { default: { name: "Default" } } };
+    await saveToDrive(store);
+
+    const text = await new Promise((res, rej) => {
+      const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsText(uploaded);
+    });
+    expect(text).not.toMatch(/\n\s{2}/);            // no pretty-print indentation
+    const parsed = JSON.parse(text);                 // loads identically
+    expect(parsed.days["2026-6-11"].note).toBe("hello");
+    expect(parsed.layouts.default.name).toBe("Default");
+    expect(typeof parsed.__savedAt).toBe("number");
+  });
 });
