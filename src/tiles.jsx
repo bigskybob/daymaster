@@ -696,8 +696,10 @@ export function TileDangles({ config, data={}, onChange, editMode, onRemove, onC
   );
 }
 
-export function TileNumbers({ config, data={}, editMode, onRemove, onConfig, allDayData }) {
-  const d = allDayData||{};
+export function TileNumbers({ config, data={}, editMode, onRemove, onConfig, allDayData, effectiveDay }) {
+  // #92 — count from the link-resolved day when available, so auto-checked
+  // boxes (field links) roll up the same as manual ticks.
+  const d = effectiveDay||allDayData||{};
   const priData = Object.values(d).find(t=>t?._type==="priorities");
   const priDone = (priData?.priorities||[]).filter(p=>p?.done).length;
   const priTotal = (priData?.priorities||[]).length||3;

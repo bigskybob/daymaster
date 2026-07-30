@@ -87,3 +87,52 @@ export function autoOnFieldIds(targetTileId, links, allDayData, tilesById) {
   }
   return on;
 }
+
+// Write a value at a dot/bracket path, creating intermediate containers as needed
+// (numeric next-segment → array, else object). Refuses to coerce an existing
+// non-object intermediate (legacy shapes like a plain-string project item) —
+// returns false instead of throwing so corrupt old days can't crash a caller.
+export function setPath(obj, path, value) {
+  if (obj == null || typeof obj !== "object" || !path) return false;
+  const parts = String(path).replace(/\[(\d+)\]/g, ".$1").split(".").filter(p => p !== "");
+  if (!parts.length) return false;
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const key = parts[i];
+    if (cur[key] == null) cur[key] = /^\d+$/.test(parts[i + 1]) ? [] : {};
+    else if (typeof cur[key] !== "object") return false;
+    cur = cur[key];
+  }
+  cur[parts[parts.length - 1]] = value;
+  return true;
+}
+
+// ─── #92 — effective (link-resolved) day data ─────────────────────────────────
+// The render layer computes link auto-check state on the fly (isLinkAutoOn) and
+// throws it away, so read-only consumers — Focus-mode collapse, the check-in
+// sink, Daily Numbers, History — saw only MANUAL data: a day finished via
+// automation looked half-empty. effectiveDayData overlays the auto state onto a
+// copy of the day. Semantics deliberately match the render pass: every source is
+// evaluated against the RAW day in a single pass, so a link can never feed
+// another link (no chaining, no recursion). The result is a derived view — never
+// write it back to the store.
+export function effectiveDayData(allDayData, links, tilesById) {
+  const raw = allDayData || {};
+  if (!Array.isArray(links) || !links.length || !tilesById) return raw;
+  let out = raw;
+  for (const link of links) {
+    const t = link?.target;
+    if (!t?.tileId || !t?.fieldId) continue;
+    const tile = tilesById[t.tileId];
+    if (!tile) continue;
+    const field = tileFields(tile.type, tile.config).find(f => f.id === t.fieldId);
+    if (!field?.path) continue;                        // derive fields have no home to write to
+    if (fieldComplete(field, raw[t.tileId])) continue; // already manually satisfied
+    if (!linkSatisfied(link, raw, tilesById)) continue;
+    if (out === raw) out = { ...raw };
+    const cur = out[t.tileId];
+    const copy = cur ? structuredClone(cur) : { _type: tile.type };
+    if (setPath(copy, field.path, true)) out[t.tileId] = copy;
+  }
+  return out;
+}

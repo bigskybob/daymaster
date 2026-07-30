@@ -3,6 +3,7 @@
 // selected day, rendered from the union of tiles across all layouts.
 import React, { useState } from "react";
 import { fmtDate, dayKeyVal } from "../lib/helpers.js";
+import { effectiveDayData } from "../lib/fieldlinks.js";
 
 export function HistoryView({ store }) {
   // #48 — newest-first by default; toggle to reverse. The "latest" day is always
@@ -17,23 +18,29 @@ export function HistoryView({ store }) {
   const latestKey = sortedDesc[0]?.[0];
 
   // Union tiles across all layouts so history renders even if the user switched
-  // to a preset that excludes some tiles previously logged.
-  const allTiles = React.useMemo(() => {
+  // to a preset that excludes some tiles previously logged. Links are unioned the
+  // same way (#92): a past day can't say which layout was active, and duplicate
+  // links just OR together, so the union is the faithful superset.
+  const { allTiles, tilesById, allLinks } = React.useMemo(() => {
     const map = {};
+    const links = [];
     for (const layoutKey of Object.keys(store.layouts || {})) {
       const layout = store.layouts[layoutKey];
       for (const col of layout?.columns || []) {
         for (const t of col.tiles || []) if (!map[t.id]) map[t.id] = t;
       }
+      links.push(...(layout?.links || []));
     }
-    return Object.values(map);
+    return { allTiles: Object.values(map), tilesById: map, allLinks: links };
   }, [store.layouts]);
 
   if (!sortedDesc.length) return React.createElement("div", {
     style:{textAlign:"center",padding:"80px",color:"var(--text-faint)",fontFamily:"var(--font-body)",fontSize:"12px"}
   }, "No history yet — your completed days will appear here.");
 
-  const selData = sel ? store.days[sel] : null;
+  // #92 — overlay field-link auto-checks so a day finished via automation reads
+  // as finished here, not half-empty.
+  const selData = sel ? effectiveDayData(store.days[sel], allLinks, tilesById) : null;
 
   return React.createElement("div", { style:{maxWidth:"960px",margin:"0 auto",padding:"24px",display:"grid",gridTemplateColumns:"200px 1fr",gap:"16px"} },
     React.createElement("div", null,

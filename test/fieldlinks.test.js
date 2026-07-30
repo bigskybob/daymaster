@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getPath, fieldComplete, sourceComplete, isLinkAutoOn, autoOnFieldIds } from "../src/lib/fieldlinks.js";
+import { getPath, setPath, fieldComplete, sourceComplete, isLinkAutoOn, autoOnFieldIds, effectiveDayData } from "../src/lib/fieldlinks.js";
 import { tileFields } from "../src/tiles/registry.js";
 
 describe("fieldlinks — path resolver", () => {
@@ -174,5 +174,79 @@ describe("fieldlinks — @allchecked (module-complete source)", () => {
     const links = [{ target: { tileId: "cl1", fieldId: "checks[0]" }, sources: [{ tileId: "ci1", fieldId: "@allchecked" }] }];
     expect(isLinkAutoOn("cl1", "checks[0]", links, { ci1: { planks: true, food: true,  priorities: true } }, tilesById)).toBe(true);
     expect(isLinkAutoOn("cl1", "checks[0]", links, { ci1: { planks: true, food: false, priorities: true } }, tilesById)).toBe(false);
+  });
+});
+
+// ─── #92 — effectiveDayData: link-resolved day overlay ────────────────────────
+describe("fieldlinks — effectiveDayData (#92)", () => {
+  const tilesById = {
+    tp1: { id: "tp1", type: "textprompt", config: { title: "Gratitude" } },
+    cl1: { id: "cl1", type: "checklist",  config: { items: ["a", "b"] } },
+    cl2: { id: "cl2", type: "checklist",  config: { items: ["x"] } },
+    pj1: { id: "pj1", type: "project",    config: { count: 2 } },
+  };
+  const linkTpToCl = { target: { tileId: "cl1", fieldId: "checks[0]" }, sources: [{ tileId: "tp1", fieldId: "text" }] };
+
+  it("returns the input unchanged (same reference) when there are no links", () => {
+    const day = { tp1: { text: "hi" } };
+    expect(effectiveDayData(day, [], tilesById)).toBe(day);
+    expect(effectiveDayData(day, null, tilesById)).toBe(day);
+  });
+
+  it("overlays an auto-checked target when the source is complete, without mutating the input", () => {
+    const day = { tp1: { text: "hi" }, cl1: { checks: [false, true] } };
+    const snapshot = structuredClone(day);
+    const eff = effectiveDayData(day, [linkTpToCl], tilesById);
+    expect(eff.cl1.checks[0]).toBe(true);
+    expect(eff.cl1.checks[1]).toBe(true);   // manual state preserved
+    expect(day).toEqual(snapshot);           // input untouched
+    expect(eff).not.toBe(day);
+  });
+
+  it("creates a _type-stamped entry for a target tile with no data that day", () => {
+    const day = { tp1: { text: "hi" } };
+    const eff = effectiveDayData(day, [linkTpToCl], tilesById);
+    expect(eff.cl1._type).toBe("checklist");
+    expect(eff.cl1.checks[0]).toBe(true);
+    expect(day.cl1).toBeUndefined();
+  });
+
+  it("leaves the day alone (same reference) when no link fires", () => {
+    const day = { tp1: { text: "   " } };
+    expect(effectiveDayData(day, [linkTpToCl], tilesById)).toBe(day);
+  });
+
+  it("does not chain: a link-driven checkbox never feeds another link", () => {
+    const chain = { target: { tileId: "cl2", fieldId: "checks[0]" }, sources: [{ tileId: "cl1", fieldId: "checks[0]" }] };
+    const day = { tp1: { text: "hi" } }; // cl1.checks[0] is auto-on, but only via link
+    const eff = effectiveDayData(day, [linkTpToCl, chain], tilesById);
+    expect(eff.cl1.checks[0]).toBe(true);
+    expect(eff.cl2).toBeUndefined(); // sources read RAW data — no cascade
+  });
+
+  it("survives legacy shapes: a plain-string project item is never coerced", () => {
+    const link = { target: { tileId: "pj1", fieldId: "items[0].done" }, sources: [{ tileId: "tp1", fieldId: "text" }] };
+    const day = { tp1: { text: "hi" }, pj1: { items: ["legacy string item"] } };
+    const eff = effectiveDayData(day, [link], tilesById);
+    expect(eff.pj1.items[0]).toBe("legacy string item"); // untouched, no throw
+  });
+
+  it("skips derive targets (no path to write) and unknown tiles/fields", () => {
+    const bad = [
+      { target: { tileId: "cl1", fieldId: "@allchecked" }, sources: [{ tileId: "tp1", fieldId: "text" }] },
+      { target: { tileId: "ghost", fieldId: "checks[0]" }, sources: [{ tileId: "tp1", fieldId: "text" }] },
+      { target: { tileId: "cl1", fieldId: "nope" },        sources: [{ tileId: "tp1", fieldId: "text" }] },
+    ];
+    const day = { tp1: { text: "hi" } };
+    expect(effectiveDayData(day, bad, tilesById)).toBe(day);
+  });
+
+  it("setPath creates intermediate containers but refuses non-object intermediates", () => {
+    const o = {};
+    expect(setPath(o, "priorities[1].done", true)).toBe(true);
+    expect(o.priorities[1].done).toBe(true);
+    expect(Array.isArray(o.priorities)).toBe(true);
+    expect(setPath({ items: ["s"] }, "items[0].done", true)).toBe(false);
+    expect(setPath(null, "a.b", 1)).toBe(false);
   });
 });

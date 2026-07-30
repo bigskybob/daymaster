@@ -11,6 +11,7 @@ import { checkinIsDone, checkinFullyDone, checkinScheduleMin } from "./lib/rules
 import { DAYS, MONTHS, todayKey, uid } from "./lib/helpers.js";
 import { THEMES, FONTS } from "./lib/themes.js";
 import { tileComplete, tileTitle } from "./lib/tileStatus.js";
+import { effectiveDayData } from "./lib/fieldlinks.js";
 import { TILE_TYPES, defaultConfig, RenderTile } from "./tiles/registry.js";
 import { AddProjectButton } from "./tiles.jsx";
 import { Onboarding } from "./ui/Onboarding.jsx";
@@ -536,6 +537,10 @@ function App() {
   if (!store) return React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"var(--bg)",color:"var(--text-muted)",fontFamily:"monospace"} }, "Loading...");
 
   const todayData = store.days[todayKey()]||{};
+  // #92 — link-resolved view of today: field-link auto-checks overlaid on the raw
+  // day so read-only consumers (Focus collapse, check-in sink, Daily Numbers) see
+  // the same completion state the tiles render. Derived only — never persisted.
+  const effectiveToday = effectiveDayData(todayData, layout.links, tilesById);
   const allLayoutEntries = Object.entries(store.layouts || {});
   const d = new Date();
 
@@ -1024,10 +1029,11 @@ function App() {
           let orderedTiles = col.tiles, staleTiles = [];
           if (!editMode && checkinIds.length) {
             const meta = new Map(checkinIds.map(t => {
-              const td = todayData[t.id] || {};
+              // #92 — read the link-resolved day so an auto-checked box counts here too.
+              const td = effectiveToday[t.id] || {};
               // #81 — only a FULLY-complete (or manually marked) check-in sinks to the
               // bottom; filling one section no longer dismisses the whole block.
-              const done = checkinFullyDone(t.config, td, todayData);
+              const done = checkinFullyDone(t.config, td, effectiveToday);
               const sched = checkinScheduleMin(t.config);
               // #6 — delay pushes the effective scheduled time; dismiss hides outright.
               const eff = sched != null ? sched + (td._delayMin || 0) : null;
@@ -1070,7 +1076,7 @@ function App() {
               const nextCol = colIdx < layout.columns.length-1 ? layout.columns[colIdx+1] : null;
               // #2/#54 — in Focus mode, completed tiles collapse to a one-liner (click to expand).
               const collapsed = !editMode && focusMode
-                && tileComplete(tile, todayData[tile.id]||{}, todayData)
+                && tileComplete(tile, effectiveToday[tile.id]||{}, effectiveToday)
                 && !focusExpanded[tile.id];
               const justHighlighted = justAdded?.id === tile.id;
               return React.createElement("div", { key:tile.id,
@@ -1135,6 +1141,7 @@ function App() {
                   onConfig: () => setConfigTile({tile, colId:col.id}),
                   onConfigPatch: patch => saveTileConfig(col.id, tile.id, {...tile.config, ...patch}),
                   allDayData: todayData,
+                  effectiveDay: effectiveToday,
                   tilesById,
                   links: layout.links || EMPTY_LINKS,
                   isAuthed,
@@ -1163,7 +1170,8 @@ function App() {
                       onRemove: () => removeTile(col.id, tile.id),
                       onConfig: () => setConfigTile({tile, colId:col.id}),
                       onConfigPatch: patch => saveTileConfig(col.id, tile.id, {...tile.config, ...patch}),
-                      allDayData: todayData, tilesById, links: layout.links || EMPTY_LINKS, isAuthed, authEpoch,
+                      allDayData: todayData, effectiveDay: effectiveToday, tilesById,
+                      links: layout.links || EMPTY_LINKS, isAuthed, authEpoch,
                       onReauth: () => initGoogleAuth(true),
                     })
                   )

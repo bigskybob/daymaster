@@ -225,7 +225,7 @@ export function tileFields(type, config = {}) {
 // through; each tile component destructures only what it needs (extras are ignored).
 export function RenderTile({
   tile, data, onChange, editMode, onRemove, onConfig, onConfigPatch,
-  allDayData, tilesById, links, isAuthed, authEpoch, onReauth,
+  allDayData, effectiveDay, tilesById, links, isAuthed, authEpoch, onReauth,
 }) {
   const entry = TILES[tile.type];
   if (!entry) {
@@ -236,7 +236,9 @@ export function RenderTile({
     // stamp _type so cross-tile readers (numbers, checkin, project) can identify data
     onChange: d => onChange({ ...d, _type: tile.type }),
     data, editMode, onRemove, onConfig, onConfigPatch,
-    allDayData, tilesById, tileId: tile.id,
+    // effectiveDay (#92) — the link-resolved view of allDayData; derive-family
+    // readers (Daily Numbers) prefer it so automated completions count.
+    allDayData, effectiveDay, tilesById, tileId: tile.id,
     links, // field-links (Phase B) — checkbox tiles read this to auto-check targets
     isAuthed, authEpoch, onReauth,
   });
