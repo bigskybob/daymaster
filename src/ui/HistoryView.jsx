@@ -4,6 +4,7 @@
 import React, { useState } from "react";
 import { fmtDate, dayKeyVal } from "../lib/helpers.js";
 import { effectiveDayData } from "../lib/fieldlinks.js";
+import { MoodTimeline } from "./MoodTimeline.jsx";
 
 export function HistoryView({ store }) {
   // #48 — newest-first by default; toggle to reverse. The "latest" day is always
@@ -42,7 +43,10 @@ export function HistoryView({ store }) {
   // as finished here, not half-empty.
   const selData = sel ? effectiveDayData(store.days[sel], allLinks, tilesById) : null;
 
-  return React.createElement("div", { style:{maxWidth:"960px",margin:"0 auto",padding:"24px",display:"grid",gridTemplateColumns:"200px 1fr",gap:"16px"} },
+  return React.createElement("div", null,
+    // #97 — mood timeline over the check-in feelings (quiet until something's logged).
+    React.createElement(MoodTimeline, { store, checkinTiles: allTiles.filter(t => t.type === "checkin") }),
+    React.createElement("div", { style:{maxWidth:"960px",margin:"0 auto",padding:"24px",display:"grid",gridTemplateColumns:"200px 1fr",gap:"16px"} },
     React.createElement("div", null,
       React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"10px"} },
         React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"9px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-faint)"} }, "Past Days"),
@@ -157,6 +161,7 @@ export function HistoryView({ store }) {
           );
         })
       ) : React.createElement("div", { style:{color:"var(--text-faint)",fontFamily:"var(--font-body)",fontSize:"12px",padding:"60px",textAlign:"center"} }, "← Select a day")
+    )
     )
   );
 }
