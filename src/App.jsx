@@ -88,6 +88,14 @@ function App() {
   // highlight + toast. And a one-time post-onboarding banner orienting to layout edit.
   const [justAdded, setJustAdded]         = useState(null); // { id, label, colId }
   const [showLayoutTip, setShowLayoutTip] = useState(false);
+  // #99 — undo for destructive edit actions. The ring holds up to 10 whole
+  // pre-mutation stores IN MEMORY ONLY (never persisted — a store snapshot inside
+  // the store would snowball localStorage/Drive). storeRef mirrors the live store
+  // so event handlers can snapshot without threading state through callbacks.
+  const [undoToast, setUndoToast] = useState(null); // { label }
+  const undoRing  = useRef([]);
+  const undoTimer = useRef(null);
+  const storeRef  = useRef(null);
 
   // #35 — re-render every minute so check-in blocks become stale on schedule.
   useEffect(() => {
@@ -294,6 +302,30 @@ function App() {
 
   // ── Store mutations ───────────────────────────────────────────────────────
 
+  // #99 — snapshot the current store before a destructive mutation and offer Undo
+  // via toast. Depth-capped ring; session-only.
+  const UNDO_DEPTH = 10;
+  const pushUndo = useCallback((label) => {
+    const s = storeRef.current;
+    if (!s) return;
+    undoRing.current = [...undoRing.current.slice(-(UNDO_DEPTH - 1)), { label, store: s }];
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    setUndoToast({ label });
+    undoTimer.current = setTimeout(() => setUndoToast(null), 8000);
+  }, []);
+
+  const undoLast = useCallback(() => {
+    const last = undoRing.current[undoRing.current.length - 1];
+    if (!last) return;
+    undoRing.current = undoRing.current.slice(0, -1);
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    setUndoToast(null);
+    // Same rule as Restore: an undo is deliberate and authoritative — stamp it
+    // newest so the pre-undo save (possibly already flushed to Drive) can't win
+    // the next cross-device merge.
+    setStore({ ...last.store, __savedAt: Date.now() });
+  }, []);
+
   const updateTileData = useCallback((tileId, data) => {
     // #53 Phase 1 — stamp the day's __mtime so cross-device merges can pick the
     // freshest copy of a contested day.
@@ -308,8 +340,14 @@ function App() {
     });
   }, []);
 
-  const removeTile = useCallback((colId, tileId) =>
-    mutateLayout(l => ({ ...l, columns: l.columns.map(c => c.id===colId ? {...c, tiles:c.tiles.filter(t=>t.id!==tileId)} : c) })), []);
+  const removeTile = useCallback((colId, tileId) => {
+    // #99 — snapshot + label before the tile disappears.
+    const s = storeRef.current;
+    const lay = s?.layouts?.[s?.activeLayout || "default"];
+    const gone = lay?.columns?.flatMap(c => c.tiles || []).find(t => t.id === tileId);
+    pushUndo(`Removed ${gone ? tileTitle(gone) : "module"}`);
+    mutateLayout(l => ({ ...l, columns: l.columns.map(c => c.id===colId ? {...c, tiles:c.tiles.filter(t=>t.id!==tileId)} : c) }));
+  }, []);
 
   const addTile = useCallback((colId, type) => {
     const id = uid();
@@ -323,14 +361,23 @@ function App() {
 
   // Field-links (Phase C) — auto-check links live on the active layout.
   const addLink    = useCallback(link => mutateLayout(l => ({ ...l, links: [...(l.links||[]), link] })), []);
-  const removeLink = useCallback(idx  => mutateLayout(l => ({ ...l, links: (l.links||[]).filter((_, i) => i !== idx) })), []);
+  const removeLink = useCallback(idx  => {
+    pushUndo("Removed link"); // #99
+    mutateLayout(l => ({ ...l, links: (l.links||[]).filter((_, i) => i !== idx) }));
+  }, []);
 
   // #84 — header tabs (named module sets) live on the active layout (layout.tabs);
   // a tile's tab is stored in its config.tab. Removing a tab also clears it off any
   // tile (withoutTab) and resets the view to All if it was the one showing.
   const addTab    = useCallback(name => mutateLayout(l => ({ ...l, tabs: [...(l.tabs||[]), { id: "tab-"+uid().slice(0,6), name }] })), []);
   const renameTab = useCallback((id, name) => mutateLayout(l => ({ ...l, tabs: (l.tabs||[]).map(t => t.id===id ? { ...t, name } : t) })), []);
-  const removeTab = useCallback(id => { mutateLayout(l => withoutTab(l, id)); setActiveTab(a => a===id ? null : a); }, []);
+  const removeTab = useCallback(id => {
+    // #99 — snapshot + label before the tab (and its tile assignments) vanish.
+    const s = storeRef.current;
+    const tab = (s?.layouts?.[s?.activeLayout || "default"]?.tabs || []).find(t => t.id === id);
+    pushUndo(`Removed tab${tab?.name ? ` "${tab.name}"` : ""}`);
+    mutateLayout(l => withoutTab(l, id)); setActiveTab(a => a===id ? null : a);
+  }, []);
   // #87 — a tab's optional time window ({start,end} as "HH:MM"); "" on either
   // clears it back to a manual-only tab.
   const setTabWindow = useCallback((id, patch) =>
@@ -405,16 +452,20 @@ function App() {
   }, []);
 
   const deleteLayout = useCallback(() => {
-    setStore(s => {
-      const key = s.activeLayout || "default";
-      const keys = Object.keys(s.layouts || {});
-      if (keys.length <= 1) { alert("Can't delete the last layout — create another one first."); return s; }
-      const cur = s.layouts[key];
-      if (!window.confirm(`Delete layout "${cur?.name || key}"?\n\nYour per-day data stays. The tiles in this layout disappear from your sidebar; switch back to another layout to see them.`)) return s;
-      const nextLayouts = { ...s.layouts };
+    // #99 — confirm + snapshot moved OUT of the setter (a setter must stay pure;
+    // and the undo snapshot should only happen when the delete really proceeds).
+    const s = storeRef.current;
+    if (!s) return;
+    const key = s.activeLayout || "default";
+    if (Object.keys(s.layouts || {}).length <= 1) { alert("Can't delete the last layout — create another one first."); return; }
+    const cur = s.layouts[key];
+    if (!window.confirm(`Delete layout "${cur?.name || key}"?\n\nYour per-day data stays. The tiles in this layout disappear from your sidebar; switch back to another layout to see them.`)) return;
+    pushUndo(`Deleted layout "${cur?.name || key}"`);
+    setStore(prev => {
+      const nextLayouts = { ...prev.layouts };
       delete nextLayouts[key];
       const nextActive = Object.keys(nextLayouts)[0];
-      return { ...s, layouts: nextLayouts, activeLayout: nextActive };
+      return { ...prev, layouts: nextLayouts, activeLayout: nextActive };
     });
   }, []);
 
@@ -535,6 +586,8 @@ function App() {
   });
 
   if (!store) return React.createElement("div", { style:{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"var(--bg)",color:"var(--text-muted)",fontFamily:"monospace"} }, "Loading...");
+
+  storeRef.current = store; // #99 — keep the undo snapshot source current
 
   const todayData = store.days[todayKey()]||{};
   // #92 — link-resolved view of today: field-link auto-checks overlaid on the raw
@@ -1254,7 +1307,20 @@ function App() {
         boxShadow:"0 4px 18px rgba(0,0,0,0.45)",display:"flex",alignItems:"center",gap:"8px"}
     },
       React.createElement("span", { style:{color:"var(--accent)",fontSize:"13px"} }, "✓"),
-      `Added ${justAdded.label} to ${justAdded.colId.replace("col-","")} — scrolled into view`)
+      `Added ${justAdded.label} to ${justAdded.colId.replace("col-","")} — scrolled into view`),
+
+    // #99 — undo toast for destructive edit actions (remove tile/link/tab, delete
+    // layout). Stacks above the "added" toast on the rare frame both are up.
+    undoToast && React.createElement("div", {
+      style:{position:"fixed",bottom: justAdded ? "68px" : "24px",left:"50%",transform:"translateX(-50%)",zIndex:201,
+        background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text)",
+        padding:"8px 10px 8px 18px",borderRadius:"8px",fontSize:"11px",letterSpacing:"0.5px",
+        boxShadow:"0 4px 18px rgba(0,0,0,0.45)",display:"flex",alignItems:"center",gap:"12px"}
+    },
+      React.createElement("span", null, undoToast.label),
+      React.createElement("button", { onClick: undoLast,
+        style:{background:"var(--accent-dim)",border:"1px solid var(--accent)",color:"var(--accent)",
+          padding:"5px 14px",borderRadius:"5px",fontSize:"11px",cursor:"pointer",letterSpacing:"1px"} }, "Undo"))
   );
 }
 
