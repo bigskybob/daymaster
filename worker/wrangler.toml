@@ -15,3 +15,13 @@ FAVORITES_DB_ID = "c33cfb4806b74a92b47bc1b1c21f04d9"
 # database's own id, NOT the id of the "Mission Control — Dev Command Center" page
 # that contains it (that page id returns "is a page, not a database").
 PROJECTS_DB_ID = "626e8335-b6bd-480a-b025-8d425f08f08a"
+
+# #112 — the 💡 capture button posts here, into ClipJob's Slack door. The channel
+# is ClipJob's SLACK_INBOX_CHANNEL (#cj-inbox), so captures join the generic tray
+# and Claude triage picks the destination. Set the id, not the name.
+#   SLACK_CAPTURE_CHANNEL = "C0XXXXXXXXX"
+#
+# The token is a SECRET and must be a Slack USER token (xoxp-, chat:write scope) —
+# ClipJob's door ignores messages carrying a bot_id, so a bot token posts happily
+# and is then silently dropped. Set it with:
+#   wrangler secret put SLACK_USER_TOKEN

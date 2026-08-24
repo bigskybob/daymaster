@@ -9,10 +9,14 @@ export function workerConfigured() {
   return !!WORKER_URL;
 }
 
-// #40 — append a free-text idea to the Incoming Ideas Notion page.
-export async function sendIdea(text) {
-  if (!WORKER_URL) throw new Error("Idea inbox isn't configured (no WORKER_URL).");
-  const res = await fetch(`${WORKER_URL}/ideas`, {
+// #112 — send a capture to ClipJob for triage (was #40's direct write to the
+// Daymaster Incoming Ideas page, which is what broke). The Worker holds the Slack
+// token and posts as the owner into ClipJob's Socket Mode door; ClipJob's Claude
+// triage then decides where the thought actually belongs. The /ideas route it
+// replaces still exists on the Worker for callers that want the Notion page.
+export async function sendCapture(text) {
+  if (!WORKER_URL) throw new Error("Capture isn't configured (no WORKER_URL).");
+  const res = await fetch(`${WORKER_URL}/capture`, {
     method: "POST",
     headers: { Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
@@ -22,7 +26,9 @@ export async function sendIdea(text) {
     try {
       const j = await res.json();
       if (j.error === "unauthorized") why = "not authorized (re-connect Drive)";
-      else if (j.error === "notion") why = `Notion ${j.detail?.status || ""} ${j.detail?.code || j.detail?.message || ""}`.trim();
+      // Slack's own error strings are the useful ones: invalid_auth means the
+      // token needs rotating, not_in_channel means the bot isn't in #cj-inbox.
+      else if (j.error === "slack") why = `Slack: ${j.detail || "rejected"}`;
       else if (j.error) why = j.error;
     } catch {}
     throw new Error(why);

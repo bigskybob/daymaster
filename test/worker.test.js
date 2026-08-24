@@ -11,6 +11,8 @@ const ENV = {
   INCOMING_IDEAS_PAGE_ID: "page-abc",
   FAVORITES_DB_ID: "db-xyz",
   PROJECTS_DB_ID: "db-proj",
+  SLACK_USER_TOKEN: "xoxp-secret",
+  SLACK_CAPTURE_CHANNEL: "C0CJINBOX",
 };
 
 function mockFetch(routes) {
@@ -103,6 +105,70 @@ describe("worker: /ideas (#40)", () => {
       body: JSON.stringify({ text: "   " }),
     }), ENV);
     expect(res.status).toBe(400);
+  });
+});
+
+describe("worker: /capture (#112) — the ClipJob Slack door", () => {
+  const post = (body = { text: "a thought" }) => new Request("https://w/capture", {
+    method: "POST",
+    headers: { Authorization: "Bearer good", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  it("posts the text to Slack as the owner and reports the message ts", async () => {
+    let sent = null;
+    global.fetch = mockFetch([
+      goodToken(),
+      ["slack.com/api/chat.postMessage", (u, opts) => { sent = opts; return ok({ ok: true, ts: "1724.5" }); }],
+    ]);
+    const res = await worker.fetch(post(), ENV);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, ts: "1724.5" });
+
+    // A USER token, not a bot one — ClipJob's door drops anything with a bot_id.
+    expect(sent.headers.Authorization).toBe("Bearer xoxp-secret");
+    expect(JSON.parse(sent.body)).toEqual({ channel: "C0CJINBOX", text: "a thought" });
+  });
+
+  it("treats Slack's 200-with-ok:false as a failure, not a success", async () => {
+    // The trap: chat.postMessage answers HTTP 200 for application errors, so a
+    // naive res.ok check would report a dropped capture as delivered.
+    global.fetch = mockFetch([
+      goodToken(),
+      ["slack.com/api/chat.postMessage", () => ok({ ok: false, error: "not_in_channel" })],
+    ]);
+    const res = await worker.fetch(post(), ENV);
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "slack", detail: "not_in_channel" });
+  });
+
+  it("400s on empty text without calling Slack", async () => {
+    let called = false;
+    global.fetch = mockFetch([
+      goodToken(),
+      ["slack.com", () => { called = true; return ok({ ok: true }); }],
+    ]);
+    const res = await worker.fetch(post({ text: "   " }), ENV);
+    expect(res.status).toBe(400);
+    expect(called).toBe(false);
+  });
+
+  it("500s clearly when the Slack token or channel isn't configured yet", async () => {
+    global.fetch = mockFetch([goodToken()]);
+    const res = await worker.fetch(post(), { ...ENV, SLACK_USER_TOKEN: "" });
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe("capture not configured");
+  });
+
+  it("401s before reaching Slack when the caller isn't the owner", async () => {
+    let called = false;
+    global.fetch = mockFetch([
+      ["tokeninfo", () => ok({ aud: "client-123", email: "intruder@example.com" })],
+      ["slack.com", () => { called = true; return ok({ ok: true }); }],
+    ]);
+    const res = await worker.fetch(post(), ENV);
+    expect(res.status).toBe(401);
+    expect(called).toBe(false);
   });
 });
 

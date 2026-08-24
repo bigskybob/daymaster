@@ -1,7 +1,9 @@
-// #40 — quick-capture modal: type an idea, it appends to the Incoming Ideas
-// Notion page via the proxy Worker. Self-contained state; closes on success.
+// #40 — quick-capture modal: type an idea and it leaves the app. #112 changed
+// where it goes: the Worker now hands it to ClipJob (via Slack) for triage
+// instead of writing it straight onto a Notion page. Self-contained state;
+// closes on success.
 import React, { useState } from "react";
-import { sendIdea } from "../lib/notion.js";
+import { sendCapture } from "../lib/notion.js";
 
 export function IdeaCaptureModal({ onClose }) {
   const [text, setText] = useState("");
@@ -12,7 +14,7 @@ export function IdeaCaptureModal({ onClose }) {
     if (!t || status === "sending") return;
     setStatus("sending");
     try {
-      await sendIdea(t);
+      await sendCapture(t);
       setStatus("sent");
       setTimeout(onClose, 700);
     } catch (e) {
@@ -29,7 +31,7 @@ export function IdeaCaptureModal({ onClose }) {
       style:{background:"var(--bg-card)",border:"1px solid var(--border)",borderRadius:"8px",padding:"18px",width:"min(440px,92vw)",boxShadow:"0 12px 40px #000a"}
     },
       React.createElement("div", { style:{fontFamily:"var(--font-display)",fontSize:"10px",letterSpacing:"1.5px",textTransform:"uppercase",color:"var(--accent)",marginBottom:"10px"} }, "💡 Capture an idea"),
-      React.createElement("div", { style:{fontSize:"10px",color:"var(--text-muted)",marginBottom:"10px",lineHeight:1.5} }, "Appends to your Daymaster — Incoming Ideas page in Notion."),
+      React.createElement("div", { style:{fontSize:"10px",color:"var(--text-muted)",marginBottom:"10px",lineHeight:1.5} }, "Goes to ClipJob for triage — it files this where it belongs."),
       React.createElement("textarea", {
         value: text, autoFocus: true, rows: 3,
         placeholder: "A rough idea, half-formed thought…",

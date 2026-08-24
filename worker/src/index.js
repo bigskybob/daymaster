@@ -10,6 +10,7 @@
 //                              "Ideas" heading (falls back to page end)          (#40)
 //   GET  /links              → query a Notion DB → [{label,url}]                (#50)
 //   GET  /projects           → Mission Control feed rows                        (#88)
+//   POST /capture { text }   → post to the ClipJob Slack door as the owner    (#112)
 //
 // Env (set via wrangler.toml [vars] and `wrangler secret put`):
 //   NOTION_TOKEN           (secret)  Notion internal integration token
@@ -20,6 +21,8 @@
 //   FAVORITES_DB_ID        (var,opt)  Notion database id queried by /links
 //   FAVORITES_FILTER       (var,opt)  JSON Notion filter applied to /links
 //   PROJECTS_DB_ID         (var,opt)  Mission Control Projects db queried by /projects
+//   SLACK_USER_TOKEN       (secret)  Slack USER token (xoxp-, chat:write) for /capture
+//   SLACK_CAPTURE_CHANNEL  (var,opt)  channel id /capture posts into (#cj-inbox)
 
 const NOTION_VERSION = "2022-06-28";
 
@@ -94,6 +97,34 @@ async function findIdeasAnchor(env) {
     if (text === "ideas") return block.id;
   }
   return null;
+}
+
+// #112 — the ClipJob front door. ClipJob is tailnet-only, so a public Pages app
+// cannot reach it directly; its Slack Socket Mode listener is the door that IS
+// reachable from anywhere. Two constraints shape this helper:
+//
+//   1. The token MUST be a Slack *user* token (xoxp-). ClipJob's door ignores any
+//      message carrying a bot_id and requires the sender to be the owner, so an
+//      incoming webhook or bot post would be accepted by Slack and then silently
+//      dropped on the ClipJob side — the worst possible failure mode for a
+//      capture button.
+//   2. It must live server-side. A Slack token shipped in a public SPA bundle is
+//      a write handle to the whole workspace for anyone who views source — the
+//      same reason NOTION_TOKEN lives here and not in the app.
+async function slackPost(env, text) {
+  const res = await fetch("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.SLACK_USER_TOKEN}`,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({ channel: env.SLACK_CAPTURE_CHANNEL, text }),
+  });
+  const data = await res.json().catch(() => ({}));
+  // Slack answers 200 with { ok: false, error: "..." } for application errors
+  // (bad token, not_in_channel, missing scope), so the HTTP status on its own
+  // never tells you whether the message actually landed.
+  return { ok: res.ok && data.ok === true, status: res.status, data };
 }
 
 // Map a Notion page → {label, url}: label from the title property, url from a
@@ -225,6 +256,23 @@ export default {
         if (anchor) payload.after = anchor; // land under "## Ideas", not after the processing log
         const r = await notion(env, `/blocks/${env.INCOMING_IDEAS_PAGE_ID}/children`, "PATCH", payload);
         return json(env, r.ok ? 200 : r.status, r.ok ? { ok: true } : { error: "notion", detail: r.data });
+      }
+
+      // #112 — the 💡 button's destination. Kept separate from /ideas rather than
+      // rerouting it: /ideas is still the Notion path other callers use, and a
+      // capture route that can fall back later wants its own shape.
+      if (request.method === "POST" && url.pathname === "/capture") {
+        const body = await request.json().catch(() => ({}));
+        const text = (body && body.text || "").trim();
+        if (!text) return json(env, 400, { error: "text required" });
+        if (!env.SLACK_USER_TOKEN || !env.SLACK_CAPTURE_CHANNEL) {
+          return json(env, 500, { error: "capture not configured" });
+        }
+        const r = await slackPost(env, text);
+        // Surface Slack's own error string — "invalid_auth" and "not_in_channel"
+        // are the two that actually happen, and they need different fixes.
+        return json(env, r.ok ? 200 : 502,
+          r.ok ? { ok: true, ts: r.data.ts } : { error: "slack", detail: r.data.error || r.data });
       }
 
       if (request.method === "GET" && url.pathname === "/links") {
