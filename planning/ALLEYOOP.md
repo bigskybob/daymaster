@@ -5,7 +5,7 @@ back, and let /historian carry the rest into the Chronicle.*
 
 ---
 
-## 2026-08-23 — /kitchen: day-type boards, done states, ClipJob capture
+## 2026-08-24 — /kitchen: day-type boards, done states, ClipJob capture
 
 **Shipped (3 dishes, all AWAITING TASTE — nothing closed this run).**
 Suite **201 → 243** green, build clean, `main` pushed.
@@ -72,3 +72,5 @@ a bot post is accepted by Slack and then silently dropped.
 - Two Drive data-loss vectors remain open (layout clobber, offline overwrite) —
   see `planning/next-enhancement-insights.md`.
 - `docs/` is the **build output** and is gitignored; CI deploys on push to `main`.
+- Notion ticket stamps from this run read `2026-08-23`; the session actually ran
+  Monday `2026-08-24`. One-day drift in the ticket record, not in the commits.
