@@ -241,6 +241,22 @@ export function buildOnboardingLayout(answers = {}, base = null) {
 
 // One-shot, idempotent layout migrations for existing users.
 // Safe to run on every load — only mutates when the old shape is present.
+// #105 — tiles that only the day-type boards use. They are NOT in the default
+// layout: seeding them there would add clutter to the very board this work is
+// trying to thin out. Each keeps a stable id, because per-day data is keyed by
+// tile id and SHARED across layouts — so "dinner" planned on the Together board
+// is the same dinner the Family Weekend board shows.
+const DAY_TYPE_TILES = {
+  household:   { id: "household",   type: "freelist",   config: { title: "Household & Errands", count: 6, placeholder: "What needs doing around here..." } },
+  // doneBehavior "hide" (#113) is the whole point of this tile: once dinner is
+  // settled it should leave the board, not sit there as answered clutter.
+  dinner:      { id: "dinner",      type: "textprompt", config: { title: "Dinner Plan", accent: "#a0784a", placeholder: "What's for dinner?", doneBehavior: "hide" } },
+  familyplans: { id: "familyplans", type: "checklist",  config: { title: "Family Plans", accent: "#6a8ab0", items: ["Something outside","Something together","Something for the house","Something just for me"] } },
+  // #114 fills this from Friday's Day Close; until then it's a plain list you can
+  // fill yourself, so the tile is useful the day it appears rather than dead.
+  carried:     { id: "carried",     type: "project",    config: { title: "Carried This Weekend", count: 4, defaultOpen: true } },
+};
+
 export function migrateLayout(store) {
   if (!store?.layouts) return store;
   let changed = false;
@@ -381,19 +397,55 @@ export function migrateLayout(store) {
   // preset key is only added if missing. Users can rename / delete via the UI.
   // Each preset is a fully independent layout (deep clone) so edits don't bleed
   // back into Daily.
+  //
+  // #105 — the last three carry `days`, which makes them DAY-TYPE boards: the
+  // calendar auto-activates them on the weekdays they own (see lib/daytypes.js).
+  // The first three have no `days` and stay manual-only, exactly as under #33.
   const PRESET_SEEDS = [
     { key: "am-focus",   name: "AM Focus",     tileIds: ["donts","priorities","morning","quote","gratint","calendar","checkin1","exercise","planks","pushups","dangles"] },
     { key: "pm-wind",    name: "PM Wind-down", tileIds: ["priorities","pmcheck","checkin3","twocol1","foodlog","twocol2","musiclog","numbers"] },
     { key: "fitness",    name: "Fitness",      tileIds: ["priorities","morning","checkin1","exercise","planks","pushups","dangles","numbers"] },
+
+    // Mon/Tue — home with Ali. Shared life leads, but the work engine is still
+    // running on one cylinder: priorities and a single project slot, two
+    // check-ins instead of three.
+    { key: "together", name: "Together", days: [1, 2],
+      tileIds: ["priorities","proj1","quote","gratint","calendar","checkin1","checkin3","exercise","planks","numbers"],
+      extraTiles: [
+        { colId: "col-left",   tile: DAY_TYPE_TILES.household },
+        { colId: "col-center", tile: DAY_TYPE_TILES.dinner },
+      ] },
+
+    // Wed–Fri — solo at home. The productivity engine: the full default board
+    // minus the parked lists (delayed / twocol1 / twocol2 / quote).
+    { key: "solo", name: "Solo", days: [3, 4, 5],
+      tileIds: ["donts","priorities","proj1","proj2","proj3","morning","gratint","calendar","checkin1","checkin2","checkin3","pmcheck","foodlog","exercise","planks","pushups","dangles","musiclog","numbers"] },
+
+    // Sat/Sun — family at home. A trimmed grid, not a different app: one carried
+    // project (filled by #114's Friday close), family plans, one check-in.
+    { key: "weekend", name: "Family Weekend", days: [0, 6],
+      tileIds: ["priorities","gratint","calendar","checkin2","exercise","planks","musiclog","numbers"],
+      extraTiles: [
+        { colId: "col-left",   tile: DAY_TYPE_TILES.carried },
+        { colId: "col-left",   tile: DAY_TYPE_TILES.familyplans },
+        { colId: "col-center", tile: DAY_TYPE_TILES.dinner },
+      ] },
   ];
   for (const seed of PRESET_SEEDS) {
     if (!store.layouts[seed.key]) {
       const def = buildDefaultLayout();
       def.name = seed.name;
-      def.columns = def.columns.map(c => ({
-        ...c,
-        tiles: c.tiles.filter(t => seed.tileIds.includes(t.id))
-      })).filter(c => c.tiles.length > 0 || c.id === "col-center"); // keep col-center even if empty so layout doesn't collapse weirdly
+      if (seed.days) def.days = [...seed.days];
+      def.columns = def.columns.map(c => {
+        // Kept tiles hold their default-layout order; the board's own tiles are
+        // appended after them, which lands each one where it reads best (dinner
+        // at the foot of the day, the weekend's carry-over under priorities).
+        const kept = c.tiles.filter(t => seed.tileIds.includes(t.id));
+        const extras = (seed.extraTiles || [])
+          .filter(e => e.colId === c.id)
+          .map(e => JSON.parse(JSON.stringify(e.tile)));
+        return { ...c, tiles: [...kept, ...extras] };
+      }).filter(c => c.tiles.length > 0 || c.id === "col-center"); // keep col-center even if empty so layout doesn't collapse weirdly
       store.layouts[seed.key] = def;
       changed = true;
     }

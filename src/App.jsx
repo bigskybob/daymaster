@@ -26,6 +26,7 @@ import { TabsModal } from "./ui/TabsModal.jsx";
 import { InstallHint } from "./ui/InstallHint.jsx";
 import { ALL_TAB, visibleColumnsForTab, tabExists, withoutTab,
          activeTimeTab, hasTimeWindows, minutesNow, suggestTimeTabs, toggleTileTab } from "./lib/tabs.js";
+import { hasDayTypes, layoutForDay, resolveLayoutKey, daysLabel } from "./lib/daytypes.js";
 import { workerConfigured } from "./lib/notion.js";
 import { APP_VERSION, BUILD_DATE } from "./version.js";
 
@@ -52,6 +53,11 @@ function App() {
   // "follow the clock", so a time-windowed tab (#87) can drive the view until the
   // user taps something. `tabNow` is the current minute, re-read on a ticker.
   const [activeTab, setActiveTab] = useState(null);
+  // #105 — a manual layout pick, live only until the day rolls. Deliberately NOT
+  // store.activeLayout: that is persisted and synced, so writing it on every day
+  // roll would push a layout change at every device. The calendar's choice stays
+  // derived; only a deliberate pick is remembered.
+  const [manualLayout, setManualLayout] = useState(null);
   const [tabNow, setTabNow]       = useState(() => minutesNow());
   const [dragState, setDragState] = useState(null);
   const [theme, setTheme]         = useState(() => localStorage.getItem(THEME_KEY) || "dark");
@@ -415,6 +421,10 @@ function App() {
   // stay stable thereafter (rename only changes display name). At least one
   // layout must remain; deleting the last falls back to seeding `default`.
   const switchLayout = useCallback((key) => {
+    // #105 — a pick from the header select is a manual override that outranks the
+    // calendar until the next day roll. activeLayout is still written so the
+    // choice survives a reload on layout sets that declare no day-types at all.
+    setManualLayout(key);
     setStore(s => {
       if (!s.layouts?.[key]) return s;
       return { ...s, activeLayout: key };
@@ -529,7 +539,34 @@ function App() {
   // (Rules of Hooks: hook count must be stable across renders).
   // Uses optional-chaining so it's safe to call when store is still null on
   // first render; on later renders the proper layout object flows in.
-  const layoutKey = store?.activeLayout || "default";
+  // #105 — day-type boards. A layout carrying `days` owns those weekdays; the
+  // calendar auto-activates it, and a manual pick wins until the day rolls — the
+  // same propose/override contract #87 gives the tab strip. Derived from the
+  // existing 60s `clock` tick rather than its own interval, so a phone that slept
+  // through midnight lands on the new day's board one tick after it wakes.
+  // Auto-switching is OPT-IN (`store.dayTypes`), following the precedent #87 set
+  // for time tabs: the mechanism ships, the seeding does not switch anything on
+  // its own. Without this gate, migrateLayout seeding the boards would silently
+  // move an existing user off the board they built the moment they next opened
+  // the app — a change that should be theirs to make, not a migration's.
+  const dayTyped      = !!store?.dayTypes && hasDayTypes(store?.layouts);
+  const dayIdx        = useMemo(() => new Date().getDay(), [clock]);
+  const autoLayoutKey = useMemo(
+    () => (dayTyped ? layoutForDay(store?.layouts, dayIdx) : null),
+    [store?.layouts, dayIdx, dayTyped]);
+
+  // Drop the manual override when the calendar's answer changes, so a device left
+  // open overnight wakes on the right board instead of yesterday's pick.
+  const prevAutoLayoutRef = useRef(autoLayoutKey);
+  useEffect(() => {
+    if (prevAutoLayoutRef.current === autoLayoutKey) return;
+    prevAutoLayoutRef.current = autoLayoutKey;
+    setManualLayout(null);
+  }, [autoLayoutKey]);
+
+  const layoutKey = resolveLayoutKey(store?.layouts || {}, {
+    manual: manualLayout, auto: autoLayoutKey, stored: store?.activeLayout || "default",
+  });
   const layout    = store?.layouts?.[layoutKey] || (store && store.layouts ? store.layouts[Object.keys(store.layouts)[0]] : null);
   const tilesById = React.useMemo(() => {
     const map = {};
@@ -935,16 +972,31 @@ function App() {
         workerConfigured() && isAuthed && headerBtn("💡 Idea", ()=>setIdeaCapture(true)),
         React.createElement("div", { style:{width:"1px",height:"18px",background:"var(--sep)",margin:"0 2px"} }),
         // #33 — layout switcher. Always visible; in edit mode the manage actions appear next to it.
-        React.createElement("select", {
-          value: layoutKey,
-          onChange: e => switchLayout(e.target.value),
-          title: "Switch layout preset",
-          style:{background:"var(--bg-hover)",border:"1px solid var(--border)",color:"var(--text-dim)",
-            fontFamily:"var(--font-body)",fontSize:"10px",padding:"4px 8px",borderRadius:"4px",
-            cursor:"pointer",letterSpacing:"0.5px"}
-        },
-          allLayoutEntries.map(([k, l]) => React.createElement("option", { key:k, value:k }, l?.name || k))
-        ),
+        // #105 — when the calendar is driving the board, the select wears the accent and
+        // says so on hover, the same way the tab strip marks a clock-driven tab. A manual
+        // pick drops it back to neutral until the day rolls and the calendar takes over.
+        (() => {
+          const calendarDriving = manualLayout === null && !!autoLayoutKey && autoLayoutKey === layoutKey;
+          return React.createElement("select", {
+            value: layoutKey,
+            onChange: e => switchLayout(e.target.value),
+            title: calendarDriving
+              ? `${layout?.name || layoutKey} — today's board (${DAYS[d.getDay()]}). Pick another to override until tomorrow.`
+              : dayTyped
+                ? "Switch board — the calendar takes back over tomorrow."
+                : "Switch layout preset",
+            style:{background:"var(--bg-hover)",
+              border:`1px solid ${calendarDriving ? "var(--accent)" : "var(--border)"}`,
+              color: calendarDriving ? "var(--accent)" : "var(--text-dim)",
+              fontFamily:"var(--font-body)",fontSize:"10px",padding:"4px 8px",borderRadius:"4px",
+              cursor:"pointer",letterSpacing:"0.5px"}
+          },
+            allLayoutEntries.map(([k, l]) => {
+              const dl = daysLabel(l);
+              return React.createElement("option", { key:k, value:k }, dl ? `${l?.name || k} · ${dl}` : (l?.name || k));
+            })
+          );
+        })(),
         editMode && headerBtn("➕ New",      newLayout,       false, {fontSize:"9px",padding:"4px 8px"}),
         editMode && headerBtn("⎘ Duplicate", duplicateLayout, false, {fontSize:"9px",padding:"4px 8px"}),
         editMode && headerBtn("✎ Rename",    renameLayout,    false, {fontSize:"9px",padding:"4px 8px"}),
@@ -953,6 +1005,15 @@ function App() {
         editMode && headerBtn("🔗 Links", ()=>setShowLinks(true), (layout.links||[]).length>0, {fontSize:"9px",padding:"4px 8px"}),
         // #84 — manage header tabs (named module sets) for the active layout
         editMode && headerBtn("⊞ Tabs", ()=>setShowTabs(true), (layout.tabs||[]).length>0, {fontSize:"9px",padding:"4px 8px"}),
+        // #105 — let the calendar pick the board. Off by default; on, the layout
+        // owning today's weekday auto-activates and a manual pick holds till tomorrow.
+        editMode && hasDayTypes(store.layouts) && headerBtn("📅 Day-types", () => {
+          setManualLayout(null);
+          setStore(s => ({ ...s, dayTypes: !s.dayTypes }));
+        }, !!store.dayTypes, {fontSize:"9px",padding:"4px 8px",
+          title: store.dayTypes
+            ? "On — the calendar picks the board each day. Click to go back to picking it yourself."
+            : "Off — you pick the board. Click to let the calendar choose by weekday."}),
         React.createElement("div", { style:{width:"1px",height:"18px",background:"var(--sep)",margin:"0 2px"} }),
         headerBtn(editMode?"✓ Done":"✎ Layout", ()=>setEditMode(e=>!e), editMode,
           editMode?{background:"var(--accent)",color:"var(--bg)",border:"1px solid var(--accent)"}:{}),
