@@ -10,7 +10,7 @@ import { mergeStores } from "./lib/sync.js";
 import { checkinIsDone, checkinFullyDone, checkinScheduleMin } from "./lib/rules.js";
 import { DAYS, MONTHS, todayKey, uid } from "./lib/helpers.js";
 import { THEMES, FONTS } from "./lib/themes.js";
-import { tileComplete, tileTitle } from "./lib/tileStatus.js";
+import { tileComplete, tileTitle, doneBehavior } from "./lib/tileStatus.js";
 import { effectiveDayData } from "./lib/fieldlinks.js";
 import { TILE_TYPES, defaultConfig, RenderTile } from "./tiles/registry.js";
 import { AddProjectButton } from "./tiles.jsx";
@@ -71,6 +71,7 @@ function App() {
   // #35 — per-column reveal of past-due check-in blocks, plus a minute ticker so
   // staleness re-evaluates as the day rolls on without needing a user interaction.
   const [showStale, setShowStale] = useState({});
+  const [showDone, setShowDone]   = useState({}); // #113 — per-column reveal for hidden finished tiles
   const [clock, setClock]         = useState(0);
   const [ideaCapture, setIdeaCapture] = useState(false); // #40 — Notion idea capture modal
   const [focusMode, setFocusMode] = useState(false);     // #2/#54 — collapse completed tiles
@@ -646,6 +647,34 @@ function App() {
   const effectiveTab = tabExists(layout, desiredTab) ? desiredTab : ALL_TAB;
   const renderColumns = !editMode ? visibleColumnsForTab(layout.columns, effectiveTab) : layout.columns;
 
+  // Read-only tile render shared by the reveal sections (#35 stale check-ins,
+  // #113 Done rail and hidden tiles): the same props the grid passes, minus the
+  // edit affordances, so a revealed tile is fully usable but never draggable.
+  const readOnlyTile = (tile, colId) => React.createElement(RenderTile, {
+    tile, data: todayData[tile.id]||{},
+    onChange: data => updateTileData(tile.id, data),
+    editMode: false,
+    onRemove: () => removeTile(colId, tile.id),
+    onConfig: () => setConfigTile({tile, colId}),
+    onConfigPatch: patch => saveTileConfig(colId, tile.id, {...tile.config, ...patch}),
+    allDayData: todayData, effectiveDay: effectiveToday, tilesById,
+    links: layout.links || EMPTY_LINKS, isAuthed, authEpoch,
+    onReauth: () => initGoogleAuth(true),
+  });
+
+  // #2/#54 + #113 — the one-line "✓ Title ▸" a finished tile collapses to. Shared
+  // by Focus mode's in-place collapse and the Done rail so the two read as one idea.
+  const doneBar = (tile, onClick) => React.createElement("div", {
+    onClick, title: "Completed — click to expand",
+    style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"8px",
+      padding:"9px 12px",background:"var(--bg-card)",border:"1px solid var(--border-dim)",
+      borderLeft:"3px solid #4a7a4a",borderRadius:"6px",cursor:"pointer",opacity:0.7}
+  },
+    React.createElement("span", { style:{display:"flex",alignItems:"center",gap:"8px",fontSize:"10px",color:"var(--text-dim)",letterSpacing:"1px",textTransform:"uppercase"} },
+      React.createElement("span", { style:{color:"#4a7a4a"} }, "✓"),
+      tileTitle(tile)),
+    React.createElement("span", { style:{color:"var(--text-xfaint)",fontSize:"11px"} }, "▸"));
+
   // #72 — pull `title` out of extra so it lands on the button as a real tooltip
   // attribute (it was being spread into `style`, so hover tooltips never showed).
   const headerBtn = (label, onClick, active=false, extra={}) => {
@@ -1167,6 +1196,26 @@ function App() {
               else orderedTiles.push(t);
             }
           }
+
+          // #113 — done states. A finished tile either stays put (the default), sinks
+          // to the column's Done rail as a one-liner, or leaves the board until it is
+          // relevant again. Render-time only: nothing here touches the day's data, so
+          // a hidden tile is one filter away from visible, never one edit from lost.
+          // Edit mode is exempt so the layout you arrange is the layout you see.
+          let doneShelf = [], doneHidden = [];
+          if (!editMode) {
+            const staying = [];
+            for (const t of orderedTiles) {
+              const behavior = doneBehavior(t);
+              if (behavior === "stay"
+                  || !tileComplete(t, effectiveToday[t.id] || {}, effectiveToday, tilesById)) {
+                staying.push(t);
+              } else {
+                (behavior === "shelf" ? doneShelf : doneHidden).push(t);
+              }
+            }
+            orderedTiles = staying;
+          }
           return React.createElement("div", { key:col.id, className:`dm-col-${col.id.replace("col-","")}`,
             style:{display:"flex",flexDirection:"column",gap:"12px"},
             onDragOver: e => e.preventDefault(),
@@ -1235,17 +1284,7 @@ function App() {
                   }, "→")
                 ),
                 collapsed
-                  ? React.createElement("div", {
-                      onClick: () => setFocusExpanded(s => ({ ...s, [tile.id]: true })),
-                      title: "Completed — click to expand",
-                      style:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:"8px",
-                        padding:"9px 12px",background:"var(--bg-card)",border:"1px solid var(--border-dim)",
-                        borderLeft:"3px solid #4a7a4a",borderRadius:"6px",cursor:"pointer",opacity:0.7}
-                    },
-                      React.createElement("span", { style:{display:"flex",alignItems:"center",gap:"8px",fontSize:"10px",color:"var(--text-dim)",letterSpacing:"1px",textTransform:"uppercase"} },
-                        React.createElement("span", { style:{color:"#4a7a4a"} }, "✓"),
-                        tileTitle(tile)),
-                      React.createElement("span", { style:{color:"var(--text-xfaint)",fontSize:"11px"} }, "▸"))
+                  ? doneBar(tile, () => setFocusExpanded(s => ({ ...s, [tile.id]: true })))
                   : React.createElement(RenderTile, {
                   tile,
                   data: todayData[tile.id]||{},
@@ -1276,20 +1315,41 @@ function App() {
                 style:{ display:"flex", flexDirection:"column", gap:"12px", marginTop:"12px", opacity:0.65 }
               },
                 staleTiles.map(tile =>
-                  React.createElement("div", { key:tile.id, style:{position:"relative"} },
-                    React.createElement(RenderTile, {
-                      tile, data: todayData[tile.id]||{},
-                      onChange: data => updateTileData(tile.id, data),
-                      editMode: false,
-                      onRemove: () => removeTile(col.id, tile.id),
-                      onConfig: () => setConfigTile({tile, colId:col.id}),
-                      onConfigPatch: patch => saveTileConfig(col.id, tile.id, {...tile.config, ...patch}),
-                      allDayData: todayData, effectiveDay: effectiveToday, tilesById,
-                      links: layout.links || EMPTY_LINKS, isAuthed, authEpoch,
-                      onReauth: () => initGoogleAuth(true),
-                    })
-                  )
-                )
+                  React.createElement("div", { key:tile.id, style:{position:"relative"} }, readOnlyTile(tile, col.id)))
+              )
+            ),
+
+            // #113 — the Done rail: tiles set to "leave it up", collapsed to one line
+            // at the foot of their column. The day's progress stays visible without
+            // finished modules holding prime space; click one to open it back up.
+            (!editMode && doneShelf.length > 0) && React.createElement("div", { key:`done-${col.id}`,
+              style:{display:"flex",flexDirection:"column",gap:"8px",marginTop:"2px"} },
+              React.createElement("div", { style:{display:"flex",alignItems:"center",gap:"8px",padding:"2px 0",
+                fontFamily:"var(--font-display)",fontSize:"8px",letterSpacing:"2px",textTransform:"uppercase",color:"var(--text-xfaint)"} },
+                React.createElement("span", { style:{flex:1,height:"1px",background:"var(--sep)"} }),
+                `Done · ${doneShelf.length}`,
+                React.createElement("span", { style:{flex:1,height:"1px",background:"var(--sep)"} })),
+              doneShelf.map(tile => React.createElement("div", { key:tile.id, "data-tile-id":tile.id },
+                focusExpanded[tile.id]
+                  ? readOnlyTile(tile, col.id)
+                  : doneBar(tile, () => setFocusExpanded(s => ({ ...s, [tile.id]: true })))))
+            ),
+
+            // #113 — tiles set to leave the board once finished (dinner plans, say).
+            // Counted behind a toggle rather than dropped silently: the point is to
+            // reclaim attention, not to make a module impossible to find.
+            (!editMode && doneHidden.length > 0) && React.createElement("div", { key:`hidden-${col.id}` },
+              React.createElement("button", {
+                onClick: () => setShowDone(s => ({ ...s, [col.id]: !s[col.id] })),
+                style:{ width:"100%", background:"transparent", border:"1px dashed var(--border-dim)",
+                  color:"var(--text-faint)", fontFamily:"var(--font-body)", fontSize:"10px",
+                  letterSpacing:"1px", textTransform:"uppercase", padding:"6px", borderRadius:"4px", cursor:"pointer" }
+              }, `${showDone[col.id] ? "▾ Hide" : "▸ Show"} ${doneHidden.length} finished`),
+              showDone[col.id] && React.createElement("div", {
+                style:{ display:"flex", flexDirection:"column", gap:"12px", marginTop:"12px", opacity:0.65 }
+              },
+                doneHidden.map(tile =>
+                  React.createElement("div", { key:tile.id, style:{position:"relative"} }, readOnlyTile(tile, col.id)))
               )
             ),
             col.id === "col-left" && !editMode &&

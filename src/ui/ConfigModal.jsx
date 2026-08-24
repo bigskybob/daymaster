@@ -6,6 +6,7 @@
 import React, { useState } from "react";
 import { TILE_TYPES } from "../tiles/registry.js";
 import { TILE_EVENTS } from "../lib/rules.js";
+import { COMPLETABLE_TYPES, doneBehavior } from "../lib/tileStatus.js";
 import { fetchCalendarList } from "../lib/calendar.js";
 
 export function ConfigModal({ tile, tiles, onSave, onClose }) {
@@ -67,6 +68,29 @@ export function ConfigModal({ tile, tiles, onSave, onClose }) {
   // a label-friendly dropdown. Quantitative legacy rules (pushups-total-gte etc.)
   // are rendered as readonly tags — users can clear them but not edit numerics
   // here; threshold rules are configured by editing the layout JSON directly.
+  // #113 — what this tile does once it's finished. Only offered on types whose
+  // completion is actually modelled; on anything else the setting would be a
+  // control that silently does nothing.
+  const renderDoneBehaviorEditor = () => {
+    if (!COMPLETABLE_TYPES.has(tile.type)) return null;
+    const current = doneBehavior({ type: tile.type, config: cfg });
+    const OPTIONS = [
+      ["stay",  "Stay in place",      "Nothing changes when it's done."],
+      ["shelf", "Move to Done rail",  "Collapses to one line at the foot of the column — still visible, out of the way."],
+      ["hide",  "Hide until tomorrow","Leaves the board once finished. Counted behind a “show finished” toggle."],
+    ];
+    return React.createElement("div", { style:{marginTop:"14px",paddingTop:"12px",borderTop:"1px solid var(--border-dim)"} },
+      labelEl("when finished"),
+      React.createElement("select", {
+        value: current,
+        onChange: e => setCfg({ ...cfg, doneBehavior: e.target.value }),
+        style: inputStyle
+      }, OPTIONS.map(([val, name]) => React.createElement("option", { key:val, value:val }, name))),
+      React.createElement("div", { style:{fontSize:"9px",color:"var(--text-faint)",marginTop:"4px",lineHeight:1.5} },
+        (OPTIONS.find(o => o[0] === current) || OPTIONS[0])[2])
+    );
+  };
+
   const renderRulesEditor = () => {
     if (tile.type !== "checklist") return null;
     const items = Array.isArray(cfg.items) ? cfg.items : [];
@@ -154,6 +178,8 @@ export function ConfigModal({ tile, tiles, onSave, onClose }) {
         const label = labelEl(k);
         // #49 — `rules` is rendered by the dedicated rules editor section below, not as a raw field.
         if (k === "rules") return null;
+        // #113 — `doneBehavior` gets its own editor below rather than a raw text box.
+        if (k === "doneBehavior") return null;
         // #46 — special-case the notionlinks `links` field as an object-array editor.
         if (k === "links" && tile.type === "notionlinks") return React.createElement(React.Fragment, { key:k }, renderLinksEditor(v));
         // #41 — special-case the gcal calendarId field as a dropdown of the user's calendars
@@ -239,6 +265,8 @@ export function ConfigModal({ tile, tiles, onSave, onClose }) {
       }),
       // #49 — per-item rules editor, only relevant to checklist tiles.
       renderRulesEditor(),
+      // #113 — per-tile done behavior (stay / shelf / hide).
+      renderDoneBehaviorEditor(),
       React.createElement("div", { style:{display:"flex",gap:"8px",marginTop:"16px"} },
         React.createElement("button", { onClick:()=>onSave(cfg),
           style:{flex:1,background:"var(--accent-dim)",border:"1px solid var(--accent)",color:"var(--accent)",fontFamily:"var(--font-body)",fontSize:"11px",padding:"8px",borderRadius:"4px",cursor:"pointer"} },
